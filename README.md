@@ -7,7 +7,6 @@ GitHub's API [does NOT include users listed as "Co-authored-by:"](https://github
 Thefore, the commit messages need to parsed "manually".
 
 It is a rewrite of [github-contributors-list](https://github.com/mgechev/github-contributors-list) to [support `Co-authored-by:`](https://github.com/mgechev/github-contributors-list/issues/26).
-`gcl` should work as drop-in replacement for `github-contributors-list`.
 
 ## How to use
 
@@ -66,3 +65,7 @@ In case of issues, try to delete `gcl.mv` to start with a fresh cache.
 - `gcl.mv` is an [MVStore](https://www.h2database.com/html/mvstore.html) caching contributor information returned by GitHub's API.
 - Dependencies of `gcl.java` cannot be updated automatically. [dependabot-core#9406](https://github.com/dependabot/dependabot-core/issues/9406).
 - Use `writer.level = TRACE` in tinylog.properties for debugging.
+
+## Alternatives
+
+- Manually curate all contributors using [All Contributors](https://allcontributors.org/)
