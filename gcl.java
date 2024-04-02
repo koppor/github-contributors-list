@@ -15,9 +15,10 @@
 //DEPS org.tinylog:slf4j-tinylog:2.7.0 // because of jgit
 //FILES tinylog.properties
 
-import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
@@ -29,7 +30,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.SortedSet;
-import java.util.StringJoiner;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
@@ -59,12 +59,16 @@ import org.kohsuke.github.PagedSearchIterable;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
+import picocli.CommandLine.Parameters;
 
 @Command(name = "gcl",
         version = "gcl 0.1.0",
         mixinStandardHelpOptions = true,
         sortSynopsis = false)
 public class gcl implements Callable<Integer> {
+
+    @Parameters(index = "0", description = "The path to the git repository to analyse.")
+    private Path repositoryPath;
 
     @Option(names = "--startrevision", description = "The first revision to check (tag or commit id). Excluded.")
     private String startCommitRevStr = "v5.12";
@@ -98,6 +102,7 @@ public class gcl implements Callable<Integer> {
             "Ramandeep Singh", "rdsingh13",
             "luklehnert", "lwlR",
             "Filippa Nilsson", "filippanilsson",
+            "Houssem Nasri", "HoussemNasri",
             "Anish.Pal", "pal-anish");
 
     private static final String avatarImgWidth = "117";
@@ -115,7 +120,7 @@ public class gcl implements Callable<Integer> {
         }
     }
 
-    private SortedSet<Contributor> contributors = new TreeSet<>(Comparator.comparing(Contributor::name));
+    private SortedSet<Contributor> contributors = new TreeSet<>((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.name,b.name));
 
     private SortedSet<String> fallbacks = new TreeSet<>();
 
@@ -143,11 +148,18 @@ public class gcl implements Callable<Integer> {
         Pattern numberAtEnd = Pattern.compile(".*\\(#(\\d+)\\)$");
         Pattern mergeCommit = Pattern.compile("^Merge pull request #(\\d+) from.*");
 
+        Logger.info("Opening local git repository {}...", repositoryPath);
+
+        if (!Files.exists(repositoryPath)) {
+            Logger.error("Path {} not found", repositoryPath);
+            return 1;
+        }
+
         try (MVStore store = new MVStore.Builder().
                 fileName("gcl.mv").
                 open();
-        Git git = Git.open(new File("C:\\git-repositories\\JabRef"));
-        Repository repository = git.getRepository(); RevWalk revWalk = new RevWalk(repository)) {
+            Git git = Git.open(repositoryPath.toFile());
+            Repository repository = git.getRepository(); RevWalk revWalk = new RevWalk(repository)) {
             MVMap<String, Contributor> emailToContributor = store.openMap("emailToContributor");
             MVMap<String, Contributor> loginToContributor = store.openMap("loginToContributor");
 
@@ -158,7 +170,7 @@ public class gcl implements Callable<Integer> {
             Instant endDate = endCommit.getAuthorIdent().getWhen().toInstant();
 
             long days = Duration.between(startDate, endDate).toDays();
-            Logger.info("Analyzing {} days: From {} to {}", days, DateTimeFormatter.ISO_INSTANT.format(startDate), DateTimeFormatter.ISO_INSTANT.format(endDate));
+            Logger.info("Analyzing {} days backwards: From {} to {}", days, DateTimeFormatter.ISO_INSTANT.format(endDate), DateTimeFormatter.ISO_INSTANT.format(startDate));
 
             try (ProgressBar pb = new ProgressBar("Analyzing", (int) days)) {
                 pb.maxHint((int) days);
@@ -180,6 +192,22 @@ public class gcl implements Callable<Integer> {
         Logger.debug("Used fallbacks {}", fallbacks);
         Logger.debug("Fallback source {}", fallbackSources);
 
+        if (!fallbacks.isEmpty()) {
+            outputFallbacks();
+        }
+
+        System.out.println();
+
+        printMarkdownSnippet();
+
+        return 0;
+    }
+
+    private void outputFallbacks() {
+        System.out.println();
+        System.out.println("Fallbacks:");
+        System.out.println();
+
         Integer maxLength = fallbacks.stream().map(String::length).max(Integer::compareTo).get();
         fallbacks.stream().forEach(fallback -> {
             String fallbackFormatted = String.format("%-" + maxLength + "s", fallback);
@@ -190,12 +218,6 @@ public class gcl implements Callable<Integer> {
                 );
             });
         });
-
-        System.out.println();
-
-        printMarkdownSnippet();
-
-        return 0;
     }
 
     private void analyzeCommit(long days, Instant startDate, RevCommit commit, ProgressBar pb, Pattern numberAtEnd, Pattern mergeCommit, GHRepository jabRefRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub) throws IOException {
@@ -260,30 +282,34 @@ public class gcl implements Callable<Integer> {
     }
 
     private void printMarkdownSnippet() {
+        String heading = "|" + "  |".repeat(cols);
+        System.out.println(heading);
+
+        String headingSeparator = "|" + " --  |".repeat(cols);
+        System.out.println(headingSeparator);
+
         StreamEx.ofSubLists(contributors.stream().toList(), cols)
                 .forEach(subList -> {
+                    boolean isShorterList = subList.size() < cols;
+
                     // first line
                     List<String> elements = subList.stream()
                                                    .map(contributor -> getFormattedFirstLine(contributor))
                                                    .toList();
                     Integer maxLength = elements.stream().map(String::length).max(Integer::compareTo).get();
-                    System.out.println(elements.stream()
-                                               .collect(Collectors.joining(" | ", "| ", " |")));
 
-                    // divider
-                    StringJoiner divider = new StringJoiner(" | ", "| ", " |");
-                    for (int i = 0; i < subList.size(); i++) {
-                        divider.add( String.format("%-" + maxLength + "s", "---"));
+                    String suffix = "";
+                    if (isShorterList) {
+                        suffix = "  |".repeat(cols - subList.size());
                     }
-                    System.out.println(divider);
+
+                    System.out.println(elements.stream()
+                                               .collect(Collectors.joining(" | ", "| ", " |")) + suffix);
 
                     // second line
                     System.out.println(subList.stream()
                                               .map(contributor -> String.format("%-" + maxLength + "s", getFormattedSecondLine(contributor)))
-                                              .collect(Collectors.joining(" | ", "| ", " |")));
-
-                    // empty line to separate
-                    System.out.println();
+                                              .collect(Collectors.joining(" | ", "| ", " |")) + suffix);
                 });
     }
 
@@ -313,6 +339,10 @@ public class gcl implements Callable<Integer> {
         Contributor contributor = loginToContributor.get(login);
         Logger.trace("Found contributor {}", contributor);
         if (contributor != null) {
+            if (ignoredUsers.contains(login)) {
+                Logger.trace("Ignored because of login {}", login);
+                return;
+            }
             contributors.add(contributor);
             putIntoEmailToContributorMap(emailToContributor, ghUser, contributor);
             return;

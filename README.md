@@ -14,13 +14,15 @@ It is a rewrite of [github-contributors-list](https://github.com/mgechev/github-
 1. [Install jbang](https://www.jbang.dev/documentation/guide/latest/installation.html#using-jbang).
    E.g., `curl -Ls https://sh.jbang.dev | bash -s - app setup` or (Powershell) `iex "& { $(iwr -useb https://ps.jbang.dev) } app setup"`
 2. Add `oauth=...` to `~/.github` with `...` being your [GitHub personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic). See [GitHub API for Java](https://github-api.kohsuke.org/) for details.
-3. `./gcl.java` (or `jbang gcl.java`)
+3. `jbang https://github.com/koppor/github-contributors-list/blob/HEAD/gcl.java --owner=<owner> --repo=<repository> --startrevision=<startCommitRevStr> --endrevision=<endCommitRevStr> <repositoryPath>`
 
 ```
 Usage: jbang gcl.java [-lhV] [--startrevision=<startCommitRevStr>]
            [--endrevision=<endCommitRevStr>] [--owner=<owner>]
            [--repo=<repository>] [--cols=<cols>] [--filter=<ignoredUsers>]...
            [--filter-emails=<ignoredEmails>]... [-m=<String=String>]...
+           <repositoryPath>
+      <repositoryPath>       The path to the git repository to analyse.
       --cols=<cols>          Number of columns
       --endrevision=<endCommitRevStr>
                              The last revision to check (tag or commit id).
