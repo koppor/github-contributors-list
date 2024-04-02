@@ -17,20 +17,42 @@ It is a rewrite of [github-contributors-list](https://github.com/mgechev/github-
 3. `./gcl.java` (or `jbang gcl.java`)
 
 ```
-Usage: jbang gcl.java [-lhV] [--owner=<owner>] [--repo=<repository>] [--cols=<cols>]
-           [--filter-emails=<ignoredEmails>]...
-      --cols=<cols>         Number of columns
+Usage: jbang gcl.java [-lhV] [--startrevision=<startCommitRevStr>]
+           [--endrevision=<endCommitRevStr>] [--owner=<owner>]
+           [--repo=<repository>] [--cols=<cols>] [--filter=<ignoredUsers>]...
+           [--filter-emails=<ignoredEmails>]... [-m=<String=String>]...
+      --cols=<cols>          Number of columns
+      --endrevision=<endCommitRevStr>
+                             The last revision to check (tag or commit id).
+                               Included.
+      --filter=<ignoredUsers>
+
       --filter-emails=<ignoredEmails>
 
-  -h, --help                Show this help message and exit.
-  -l, --github-lookup       Should calls be made to GitHub's API for user
-                              information
-      --owner=<owner>       The GitHub owner of the repository
-      --repo=<repository>   The GitHub repository name
-  -V, --version             Print version information and exit.
+  -h, --help                 Show this help message and exit.
+  -l, --[no-]github-lookup   Should calls be made to GitHub's API for user
+                               information
+  -m, --lgin-mapping=<String=String>
+                             Mapping of GitHub logins to names. Format:
+                               name=login
+      --owner=<owner>        The GitHub owner of the repository
+      --repo=<repository>    The GitHub repository name
+      --startrevision=<startCommitRevStr>
+                             The first revision to check (tag or commit id).
+                               Excluded.
+  -V, --version              Print version information and exit.
 ```
 
-The tool is implemeted as single pass over the commits of the repository.
+At the end, non-found committers are listed.
+The format is `<used name> <PR link> <commit link>`.
+Example:
+
+    Anish.Pal https://github.com/JabRef/jabref/pull/10829 https://github.com/JabRef/jabref/pull/10829/commits/d2d84923df2c6c7d59559da8d583ae17dc803c3d
+
+With that information, one can create a mapping from the committer name to the GitHub username.
+In this case: `Anish.Pal=pal-anish`
+
+The tool is implemented as single pass over the commits of the repository.
 It uses a cache to store the information of contributors.
 Thus, repeated runs could update contributor information.
 For instance, if a user first appears as "Co-authored-by:" and later as a pull request author, the username could be determined better.

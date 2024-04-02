@@ -7,8 +7,8 @@
 //DEPS org.kohsuke:github-api:1.321
 //DEPS info.picocli:picocli:4.7.5
 //DEPS one.util:streamex:0.8.2
-
 //DEPS me.tongfei:progressbar:0.10.1
+//DEPS org.eclipse.collections:eclipse-collections:11.1.0
 
 //DEPS org.tinylog:tinylog-api:2.7.0
 //DEPS org.tinylog:tinylog-impl:2.7.0
@@ -35,10 +35,11 @@ import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 import me.tongfei.progressbar.ProgressBar;
 import one.util.streamex.StreamEx;
+import org.eclipse.collections.api.multimap.MutableMultimap;
+import org.eclipse.collections.impl.factory.Multimaps;
 import org.tinylog.Logger;
 
 import org.eclipse.jgit.api.Git;
@@ -91,7 +92,13 @@ public class gcl implements Callable<Integer> {
     @Option(names = { "-l", "--github-lookup" }, description = "Should calls be made to GitHub's API for user information", negatable = true)
     boolean ghLookup = true;
 
-    Map<String, String> loginMapping = Map.of("shwan.jj", "shawn-jj");
+    @Option(names = {"-m", "--lgin-mapping"}, description = {"Mapping of GitHub logins to names. Format: name=login"})
+    Map<String, String> loginMapping = Map.of("shawn.jj", "shawn-jj",
+            "Harshit.Gupta7", "harsh1898",
+            "Ramandeep Singh", "rdsingh13",
+            "luklehnert", "lwlR",
+            "Filippa Nilsson", "filippanilsson",
+            "Anish.Pal", "pal-anish");
 
     private static final String avatarImgWidth = "117";
 
@@ -114,6 +121,13 @@ public class gcl implements Callable<Integer> {
 
     private Set<CoAuthor> alreadyChecked = new HashSet<>();
 
+    private record PRAppearance(String prNumber, String sha) {
+    }
+
+    private String currentPR = "";
+    private String currentSHA = "";
+    private MutableMultimap<String, PRAppearance> fallbackSources = Multimaps.mutable.sortedBag.empty(Comparator.comparing(PRAppearance::prNumber));
+
     public static void main(String... args) throws Exception {
         CommandLine cmd = new CommandLine(new gcl());
         int exitCode = cmd.execute(args);
@@ -122,7 +136,7 @@ public class gcl implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
-        Logger.debug("Connecting to {}/{}...", owner, repository);
+        Logger.info("Connecting to {}/{}...", owner, repository);
         GitHub gitHub = GitHub.connect();
         GHRepository jabRefRepository = gitHub.getRepository(owner + "/" + repository);
 
@@ -144,7 +158,7 @@ public class gcl implements Callable<Integer> {
             Instant endDate = endCommit.getAuthorIdent().getWhen().toInstant();
 
             long days = Duration.between(startDate, endDate).toDays();
-            Logger.debug("Analyzing {} days: From {} to {}", days, DateTimeFormatter.ISO_INSTANT.format(startDate), DateTimeFormatter.ISO_INSTANT.format(endDate));
+            Logger.info("Analyzing {} days: From {} to {}", days, DateTimeFormatter.ISO_INSTANT.format(startDate), DateTimeFormatter.ISO_INSTANT.format(endDate));
 
             try (ProgressBar pb = new ProgressBar("Analyzing", (int) days)) {
                 pb.maxHint((int) days);
@@ -164,6 +178,20 @@ public class gcl implements Callable<Integer> {
 
         Logger.debug("Found contributors {}", contributors);
         Logger.debug("Used fallbacks {}", fallbacks);
+        Logger.debug("Fallback source {}", fallbackSources);
+
+        Integer maxLength = fallbacks.stream().map(String::length).max(Integer::compareTo).get();
+        fallbacks.stream().forEach(fallback -> {
+            String fallbackFormatted = String.format("%-" + maxLength + "s", fallback);
+            fallbackSources.get(fallback).stream().forEach(pr -> {
+                System.out.println(fallbackFormatted
+                        + " https://github.com/%s/%s/pull/%s".formatted(owner, repository, pr.prNumber)
+                        + " https://github.com/%s/%s/pull/%s/commits/%s".formatted(owner, repository, pr.prNumber, pr.sha)
+                );
+            });
+        });
+
+        System.out.println();
 
         printMarkdownSnippet();
 
@@ -196,6 +224,7 @@ public class gcl implements Callable<Integer> {
 
     private void analyzePullRequest(ProgressBar pb, GHRepository jabRefRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String number) throws IOException {
         Logger.trace("Investigating PR #{}", number);
+        this.currentPR = number;
         pb.setExtraMessage("PR " + number);
         int prNumber = Integer.parseInt(number);
         GHPullRequest pullRequest = jabRefRepository.getPullRequest(prNumber);
@@ -206,6 +235,8 @@ public class gcl implements Callable<Integer> {
         while (ghCommitIterator.hasNext()) {
             GHPullRequestCommitDetail ghCommit = ghCommitIterator.next();
             GHPullRequestCommitDetail.Commit theCommit = ghCommit.getCommit();
+
+            this.currentSHA = ghCommit.getSha();
 
             // GitHub's API does not set the real GitHub username, so following does not work
             // This is very different from the information, which is available in GitHub's web interface
@@ -364,6 +395,7 @@ public class gcl implements Callable<Integer> {
         if (!ghLookup) {
             Logger.trace("Online lookup disabled. Using {} as fallback.", coAuthor.name);
             fallbacks.add(coAuthor.name);
+            fallbackSources.put(coAuthor.name, new PRAppearance(currentPR, currentSHA));
             return Optional.of(new Contributor(coAuthor.name, "", ""));
         }
         PagedSearchIterable<GHUser> list = gitHub.searchUsers().q(email).list();
@@ -429,6 +461,7 @@ public class gcl implements Callable<Integer> {
         if (user == null) {
             Logger.trace("No user found for {}. Using {} as fallback.", coAuthor, coAuthor.name);
             fallbacks.add(coAuthor.name);
+            fallbackSources.put(coAuthor.name, new PRAppearance(currentPR, currentSHA));
             return Optional.of(new Contributor(coAuthor.name, "", ""));
         }
 
@@ -446,7 +479,7 @@ public class gcl implements Callable<Integer> {
         }
         if (name == null) {
             String usersLogin = user.getLogin();
-            Logger.error("Could not get name for {}. Falling back to login {}", user, usersLogin);
+            Logger.debug("Could not get name for {}. Falling back to login {}", user, usersLogin);
             name = usersLogin;
         }
 
