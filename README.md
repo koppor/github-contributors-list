@@ -8,6 +8,10 @@ Thefore, the commit messages need to parsed "manually".
 
 It is a rewrite of [github-contributors-list](https://github.com/mgechev/github-contributors-list) to [support `Co-authored-by:`](https://github.com/mgechev/github-contributors-list/issues/26).
 
+## Example
+
+See <https://blog.jabref.org/2024/04/03/JabRef5-13/#special-thanks> for real-world usage.
+
 ## How to use
 
 1. [Install jbang](https://www.jbang.dev/documentation/guide/latest/installation.html#using-jbang).
