@@ -15,9 +15,11 @@ See <https://blog.jabref.org/2024/04/03/JabRef5-13/#special-thanks> for real-wor
 ## How to use
 
 1. [Install jbang](https://www.jbang.dev/documentation/guide/latest/installation.html#using-jbang).
-   E.g., `curl -Ls https://sh.jbang.dev | bash -s - app setup` or (Powershell) `iex "& { $(iwr -useb https://ps.jbang.dev) } app setup"`
-2. Add `oauth=...` to `~/.github` with `...` being your [GitHub personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic). See [GitHub API for Java](https://github-api.kohsuke.org/) for details.
-3. `jbang https://github.com/koppor/github-contributors-list/blob/HEAD/gcl.java --owner=<owner> --repo=<repository> --startrevision=<startCommitRevStr> --endrevision=<endCommitRevStr> <repositoryPath>`
+   E.g.,
+   - Linux/macOS: `curl -Ls https://sh.jbang.dev | bash -s - app setup` or
+   - Windows (Powershell): `iex "& { $(iwr -useb https://ps.jbang.dev) } app setup"`
+3. Add `oauth=...` to `~/.github` with `...` being your [GitHub personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic). See [GitHub API for Java](https://github-api.kohsuke.org/) for details.
+4. `jbang https://github.com/koppor/github-contributors-list/blob/HEAD/gcl.java --owner=<owner> --repo=<repository> --startrevision=<startCommitRevStr> --endrevision=<endCommitRevStr> <repositoryPath>`
 
 ```
 Usage: jbang gcl.java [-lhV] [--startrevision=<startCommitRevStr>]
@@ -73,3 +75,4 @@ In case of issues, try to delete `gcl.mv` to start with a fresh cache.
 ## Alternatives
 
 - Manually curate all contributors using [All Contributors](https://allcontributors.org/)
+- Use [github-contributors-list](https://github.com/mgechev/github-contributors-list) and accept that `Co-authored-by:` is ignored.
