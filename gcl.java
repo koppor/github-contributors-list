@@ -179,15 +179,24 @@ public class gcl implements Callable<Integer> {
             Git git = Git.open(repositoryPath.toFile());
             Repository repository = git.getRepository(); RevWalk revWalk = new RevWalk(repository)) {
 
+            String remoteOriginUrl = "n/a";
             if (!hasRepository) {
                 // Source: https://stackoverflow.com/a/38062680/873282
-                ownerRepository = git.getRepository().getConfig().getString("remote", "origin", "url");
-                ownerRepository = ownerRepository.substring(ownerRepository.indexOf(':') + 1, ownerRepository.lastIndexOf('.'));
+                remoteOriginUrl = git.getRepository().getConfig().getString("remote", "origin", "url");
+                ownerRepository = remoteOriginUrl.substring(remoteOriginUrl.indexOf(':') + 1, remoteOriginUrl.lastIndexOf('.'));
             }
 
             Logger.info("Connecting to {}...", ownerRepository);
             GitHub gitHub = GitHub.connect();
-            GHRepository gitHubRepository = gitHub.getRepository(ownerRepository);
+            try {
+                GHRepository gitHubRepository = gitHub.getRepository(ownerRepository);
+            } catch (IllegalArgumentException e) {
+                Logger.error("Error in repository reference {}", ownerRepository);
+                if (!hasRepository) {
+                    Logger.error("It was automatically derived from {}", remoteOriginUrl);
+                }
+                return 1;
+            }
 
             MVMap<String, Contributor> emailToContributor = store.openMap("emailToContributor");
             MVMap<String, Contributor> loginToContributor = store.openMap("loginToContributor");
