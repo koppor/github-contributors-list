@@ -183,7 +183,14 @@ public class gcl implements Callable<Integer> {
             if (!hasRepository) {
                 // Source: https://stackoverflow.com/a/38062680/873282
                 remoteOriginUrl = git.getRepository().getConfig().getString("remote", "origin", "url");
-                ownerRepository = remoteOriginUrl.substring(remoteOriginUrl.indexOf(':') + 1, remoteOriginUrl.lastIndexOf('.'));
+                if (remoteOriginUrl.startsWith("git@")) {
+                    ownerRepository = remoteOriginUrl.substring(remoteOriginUrl.indexOf(':') + 1, remoteOriginUrl.lastIndexOf('.'));
+                } else {
+                    ownerRepository = remoteOriginUrl.substring(remoteOriginUrl.indexOf("github.com/") + "github.com/".length());
+                    if (ownerRepository.endsWith(".git")) {
+                        ownerRepository = ownerRepository.substring(0, ownerRepository.length() - ".git".length());
+                    }
+                }
             }
 
             Logger.info("Connecting to {}...", ownerRepository);
