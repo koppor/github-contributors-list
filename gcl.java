@@ -76,7 +76,7 @@ public class gcl implements Callable<Integer> {
     private static final Pattern numberAtEnd = Pattern.compile(".*\\(#(\\d+)\\)$");
     private static final Pattern mergeCommit = Pattern.compile("^Merge pull request #(\\d+) from.*");
 
-    @Parameters(index = "0", description = "The path to the git repository to analyse.")
+    @Parameters(index = "0", arity = "0..1", description = "The path to the git repository to analyse.")
     private Path repositoryPath = Path.of(".");
 
     @Option(names = "--startrevision", description = "The first revision to check (tag or commit id). Excluded.")
