@@ -40,6 +40,9 @@ import me.tongfei.progressbar.ProgressBar;
 import one.util.streamex.StreamEx;
 import org.eclipse.collections.api.multimap.MutableMultimap;
 import org.eclipse.collections.impl.factory.Multimaps;
+import org.eclipse.jgit.lib.Constants;
+import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.revwalk.RevSort;
 import org.tinylog.Logger;
 
 import org.eclipse.jgit.api.Git;
@@ -67,20 +70,21 @@ import picocli.CommandLine.Parameters;
         sortSynopsis = false)
 public class gcl implements Callable<Integer> {
 
+    private static boolean hasStartRevision;
+    private static boolean hasEndRevision;
+    private static boolean hasRepository;
+
     @Parameters(index = "0", description = "The path to the git repository to analyse.")
-    private Path repositoryPath;
+    private Path repositoryPath = Path.of(".");
 
     @Option(names = "--startrevision", description = "The first revision to check (tag or commit id). Excluded.")
-    private String startCommitRevStr = "v5.12";
+    private String startCommitRevStr;
 
     @Option(names = "--endrevision", description = "The last revision to check (tag or commit id). Included.")
-    private String endCommitRevStr = "v5.13";
+    private String endCommitRevStr;
 
-    @Option(names = "--owner", description = "The GitHub owner of the repository")
-    private String owner = "JabRef";
-
-    @Option(names = "--repo", description = "The GitHub repository name")
-    private String repository = "jabref";
+    @Option(names = "--repository", description = "The GitHub repository in the form owner/repostiory. E.g., JabRef/jabref")
+    private String ownerRepository;
 
     @Option(names = "--cols", description = "Number of columns")
     private Integer cols  = 6;
@@ -96,7 +100,7 @@ public class gcl implements Callable<Integer> {
     @Option(names = { "-l", "--github-lookup" }, description = "Should calls be made to GitHub's API for user information", negatable = true)
     boolean ghLookup = true;
 
-    @Option(names = {"-m", "--lgin-mapping"}, description = {"Mapping of GitHub logins to names. Format: name=login"})
+    @Option(names = {"-m", "--login-mapping"}, description = {"Mapping of GitHub logins to names. Format: name=login"})
     Map<String, String> loginMapping = Map.of("shawn.jj", "shawn-jj",
             "Harshit.Gupta7", "harsh1898",
             "Ramandeep Singh", "rdsingh13",
@@ -134,17 +138,22 @@ public class gcl implements Callable<Integer> {
     private MutableMultimap<String, PRAppearance> fallbackSources = Multimaps.mutable.sortedBag.empty(Comparator.comparing(PRAppearance::prNumber));
 
     public static void main(String... args) throws Exception {
-        CommandLine cmd = new CommandLine(new gcl());
-        int exitCode = cmd.execute(args);
+        CommandLine commandLine = new CommandLine(new gcl());
+
+        CommandLine.ParseResult parseResult = commandLine.parseArgs(args);
+        hasStartRevision = parseResult.hasMatchedOption("--startrevision");
+        hasEndRevision = parseResult.hasMatchedOption("--endrevision");
+        hasRepository = parseResult.hasMatchedOption("--repository");
+
+        int exitCode = commandLine.execute(args);
         System.exit(exitCode);
+    }
+
+    private static void setDefaultValues(String[] args, CommandLine commandLine) {
     }
 
     @Override
     public Integer call() throws Exception {
-        Logger.info("Connecting to {}/{}...", owner, repository);
-        GitHub gitHub = GitHub.connect();
-        GHRepository gitHubRepository = gitHub.getRepository(owner + "/" + repository);
-
         Pattern numberAtEnd = Pattern.compile(".*\\(#(\\d+)\\)$");
         Pattern mergeCommit = Pattern.compile("^Merge pull request #(\\d+) from.*");
 
@@ -160,11 +169,39 @@ public class gcl implements Callable<Integer> {
                 open();
             Git git = Git.open(repositoryPath.toFile());
             Repository repository = git.getRepository(); RevWalk revWalk = new RevWalk(repository)) {
+
+            if (!hasRepository) {
+                // Source: https://stackoverflow.com/a/38062680/873282
+                ownerRepository = git.getRepository().getConfig().getString("remote", "origin", "url");
+                ownerRepository = ownerRepository.substring(ownerRepository.indexOf(':') + 1, ownerRepository.lastIndexOf('.'));
+            }
+
+            Logger.info("Connecting to {}...", ownerRepository);
+            GitHub gitHub = GitHub.connect();
+            GHRepository gitHubRepository = gitHub.getRepository(ownerRepository);
+
             MVMap<String, Contributor> emailToContributor = store.openMap("emailToContributor");
             MVMap<String, Contributor> loginToContributor = store.openMap("loginToContributor");
 
-            RevCommit startCommit = revWalk.parseCommit(repository.resolve(startCommitRevStr));
-            RevCommit endCommit = revWalk.parseCommit(repository.resolve(endCommitRevStr));
+            RevCommit startCommit;
+            if (hasStartRevision) {
+                startCommit = revWalk.parseCommit(repository.resolve(startCommitRevStr));
+            } else {
+                RevCommit root = revWalk.parseCommit(repository.resolve(Constants.HEAD));
+                revWalk.sort(RevSort.REVERSE);
+                revWalk.markStart(root);
+                startCommit = revWalk.next();
+                Logger.trace("No explicit start commit, using {}", startCommit.getId().name());
+            }
+
+            RevCommit endCommit;
+            if (hasEndRevision) {
+                endCommit = revWalk.parseCommit(repository.resolve(endCommitRevStr));
+            } else {
+                // Hint by https://stackoverflow.com/a/59274329/873282
+                endCommit = git.log().setMaxCount(1).call().iterator().next();
+                Logger.trace("No explicit end commit, using {}", endCommit.getId().name());
+            }
 
             Instant startDate = startCommit.getAuthorIdent().getWhen().toInstant();
             Instant endDate = endCommit.getAuthorIdent().getWhen().toInstant();
@@ -213,8 +250,8 @@ public class gcl implements Callable<Integer> {
             String fallbackFormatted = String.format("%-" + maxLength + "s", fallback);
             fallbackSources.get(fallback).stream().forEach(pr -> {
                 System.out.println(fallbackFormatted
-                        + " https://github.com/%s/%s/pull/%s".formatted(owner, repository, pr.prNumber)
-                        + " https://github.com/%s/%s/pull/%s/commits/%s".formatted(owner, repository, pr.prNumber, pr.sha)
+                        + " https://github.com/%s/pull/%s".formatted(ownerRepository, pr.prNumber)
+                        + " https://github.com/%s/pull/%s/commits/%s".formatted(ownerRepository, pr.prNumber, pr.sha)
                 );
             });
         });
