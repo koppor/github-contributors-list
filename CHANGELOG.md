@@ -16,7 +16,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Commits without any pull request number are also analyzed.
 - Fixed typo in parameter `--login-mapping`.
+
+### Removed
+
+- Removed some hard-coded JabRef defaults (such as ignored users).
 
 ## 2024-04-09
 

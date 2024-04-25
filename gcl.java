@@ -41,7 +41,6 @@ import one.util.streamex.StreamEx;
 import org.eclipse.collections.api.multimap.MutableMultimap;
 import org.eclipse.collections.impl.factory.Multimaps;
 import org.eclipse.jgit.lib.Constants;
-import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.revwalk.RevSort;
 import org.tinylog.Logger;
 
@@ -74,6 +73,9 @@ public class gcl implements Callable<Integer> {
     private static boolean hasEndRevision;
     private static boolean hasRepository;
 
+    private static final Pattern numberAtEnd = Pattern.compile(".*\\(#(\\d+)\\)$");
+    private static final Pattern mergeCommit = Pattern.compile("^Merge pull request #(\\d+) from.*");
+
     @Parameters(index = "0", description = "The path to the git repository to analyse.")
     private Path repositoryPath = Path.of(".");
 
@@ -90,12 +92,11 @@ public class gcl implements Callable<Integer> {
     private Integer cols  = 6;
 
     @Option(names = "--filter")
-    private List<String> ignoredUsers = List.of("koppor", "calixtus", "Siedlerchr", "tobiasdiez", "but", "k3KAW8Pnf7mkmdSMPHz27", "HoussemNasri", "dependabot[bot]", "dependabot", "apps/dependabot", "apps/githubactions", "ThiloteE");
+    private List<String> ignoredUsers = List.of("dependabot[bot]", "dependabot", "apps/dependabot", "apps/githubactions", "renovate[bot]", "renovate", "renovate-bot", "renovate-approve");
 
     @Option(names = "--filter-emails")
     private List<String> ignoredEmails = List.of(
-            "118344674+github-merge-queue@users.noreply.github.com", "github-merge-queue@users.noreply.github.com", "gradle-update-robot@regolo.cc", "team@moderne.io", "49699333+dependabot[bot]@users.noreply.github.com",
-            "houssemnasri2001@gmail.com", "cc.snethlage@gmail.com", "50491877+calixtus@users.noreply.github.com", "siedlerkiller@gmail.com", "Siedlerchr@users.noreply.github.com", "320228+Siedlerchr@users.noreply.github.com");
+            "118344674+github-merge-queue@users.noreply.github.com", "github-merge-queue@users.noreply.github.com", "gradle-update-robot@regolo.cc", "team@moderne.io", "49699333+dependabot[bot]@users.noreply.github.com");
 
     @Option(names = { "-l", "--github-lookup" }, description = "Should calls be made to GitHub's API for user information", negatable = true)
     boolean ghLookup = true;
@@ -154,9 +155,6 @@ public class gcl implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
-        Pattern numberAtEnd = Pattern.compile(".*\\(#(\\d+)\\)$");
-        Pattern mergeCommit = Pattern.compile("^Merge pull request #(\\d+) from.*");
-
         Logger.info("Opening local git repository {}...", repositoryPath);
 
         if (!Files.exists(repositoryPath)) {
@@ -220,7 +218,7 @@ public class gcl implements Callable<Integer> {
                     if (commit.equals(startCommit)) {
                         break;
                     }
-                    analyzeCommit(days, startDate, commit, pb, numberAtEnd, mergeCommit, gitHubRepository, loginToContributor, emailToContributor, gitHub);
+                    analyzeCommit(days, startDate, commit, pb, gitHubRepository, loginToContributor, emailToContributor, gitHub);
                 }
             }
         }
@@ -257,10 +255,13 @@ public class gcl implements Callable<Integer> {
         });
     }
 
-    private void analyzeCommit(long days, Instant startDate, RevCommit commit, ProgressBar pb, Pattern numberAtEnd, Pattern mergeCommit, GHRepository jabRefRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub) throws IOException {
+    /**
+     * Analyzes a commit found in the repository. Will then diverge to the pull request analysis if a PR number is found in the commit message. Otherwise, the commit is analyzed as a regular commit.
+     */
+    private void analyzeCommit(long days, Instant startDate, RevCommit commit, ProgressBar progressBar, GHRepository ghRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub) throws IOException {
         long daysSinceLast = days - Duration.between(startDate, commit.getAuthorIdent().getWhen().toInstant()).toDays();
         Logger.trace("{} daysSinceLast", daysSinceLast);
-        pb.stepTo((int) daysSinceLast);
+        progressBar.stepTo((int) daysSinceLast);
 
         String shortMessage = commit.getShortMessage();
         Logger.trace("Checking commit \"{}\" ({})", shortMessage, commit.getId().name());
@@ -276,17 +277,21 @@ public class gcl implements Callable<Integer> {
                 number = matcher.group(1);
             }
         }
-        if (number != null) {
-            analyzePullRequest(pb, jabRefRepository, loginToContributor, emailToContributor, gitHub, number);
+        if (number == null) {
+            Logger.trace("No PR number found in commit message");
+            CoAuthor authorOfCommit = new CoAuthor(commit.getAuthorIdent().getName(), commit.getAuthorIdent().getEmailAddress());
+            analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, commit.getFullMessage());
+        } else {
+            analyzePullRequest(progressBar, ghRepository, loginToContributor, emailToContributor, gitHub, number);
         }
     }
 
-    private void analyzePullRequest(ProgressBar pb, GHRepository jabRefRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String number) throws IOException {
+    private void analyzePullRequest(ProgressBar progressBar, GHRepository ghRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String number) throws IOException {
         Logger.trace("Investigating PR #{}", number);
         this.currentPR = number;
-        pb.setExtraMessage("PR " + number);
+        progressBar.setExtraMessage("PR " + number);
         int prNumber = Integer.parseInt(number);
-        GHPullRequest pullRequest = jabRefRepository.getPullRequest(prNumber);
+        GHPullRequest pullRequest = ghRepository.getPullRequest(prNumber);
         GHUser user = pullRequest.getUser();
         storeContributorData(loginToContributor, emailToContributor, user);
 
@@ -303,19 +308,23 @@ public class gcl implements Callable<Integer> {
             // storeContributorData(loginToContributor, gitHub, theCommit.getCommitter().getUsername());
 
             CoAuthor authorOfCommit = new CoAuthor(theCommit.getAuthor().getName(), theCommit.getAuthor().getEmail());
-            Optional<Contributor> contributor = lookupContributorData(emailToContributor, gitHub, authorOfCommit);
-            // In case an author is ignored, the Optional is empty
-            contributor.ifPresent(contributors::add);
-
-            // Parse commit message for "Co-authored-by" hints
-            theCommit.getMessage().lines()
-                     .filter(line -> line.startsWith("Co-authored-by:"))
-                     .map(CoAuthor::new)
-                     .map(coAuthor -> lookupContributorData(emailToContributor, gitHub, coAuthor))
-                     .filter(Optional::isPresent)
-                     .map(Optional::get)
-                     .forEach(contributors::add);
+            analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, theCommit.getMessage());
         }
+    }
+
+    private void analyzeRegularCommit(CoAuthor authorOfCommit, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String commitMessage) {
+        Optional<Contributor> contributor = lookupContributorData(emailToContributor, gitHub, authorOfCommit);
+        // In case an author is ignored, the Optional is empty
+        contributor.ifPresent(contributors::add);
+
+        // Parse commit message for "Co-authored-by" hints
+        commitMessage.lines()
+                 .filter(line -> line.startsWith("Co-authored-by:"))
+                 .map(CoAuthor::new)
+                 .map(coAuthor -> lookupContributorData(emailToContributor, gitHub, coAuthor))
+                 .filter(Optional::isPresent)
+                 .map(Optional::get)
+                 .forEach(contributors::add);
     }
 
     private void printMarkdownSnippet() {
