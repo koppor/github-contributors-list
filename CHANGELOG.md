@@ -30,6 +30,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Initial release.
 
-[Unreleased]: https://github.com/koppor/github-contributors-list/compare/2024-04-25...main
 [2024-04-25]: https://github.com/koppor/github-contributors-list/compare/2024-04-09...2024-04-25
 [2024-04-09]: https://github.com/koppor/github-contributors-list/releases/tag/2024-04-09
