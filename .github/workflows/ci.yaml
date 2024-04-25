@@ -17,3 +17,5 @@ jobs:
         uses: jbangdev/jbang-action@v0.115.0
         with:
           script: gcl.java
+        env:
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
