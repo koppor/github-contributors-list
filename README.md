@@ -22,13 +22,13 @@ See <https://blog.jabref.org/2024/04/03/JabRef5-13/#special-thanks> for real-wor
 3. `cd` to the repository you want to analyze.
 4. `jbang gcl@koppor/github-contributors-list`
 
-```
-Usage: jbang gcl.java [-lhV] [--startrevision=<startCommitRevStr>]
-           [--endrevision=<endCommitRevStr>] [--owner=<owner>]
-           [--repo=<repository>] [--cols=<cols>] [--filter=<ignoredUsers>]...
+```terminal
+Usage: jbang gcl@koppor/github-contributors-list [-lhV] [--startrevision=<startCommitRevStr>]
+           [--endrevision=<endCommitRevStr>] [--repository=<ownerRepository>]
+           [--cols=<cols>] [--filter=<ignoredUsers>]...
            [--filter-emails=<ignoredEmails>]... [-m=<String=String>]...
-           <repositoryPath>
-      <repositoryPath>       The path to the git repository to analyse.
+           [<repositoryPath>]
+      [<repositoryPath>]     The path to the git repository to analyse.
       --cols=<cols>          Number of columns
       --endrevision=<endCommitRevStr>
                              The last revision to check (tag or commit id).
@@ -40,11 +40,12 @@ Usage: jbang gcl.java [-lhV] [--startrevision=<startCommitRevStr>]
   -h, --help                 Show this help message and exit.
   -l, --[no-]github-lookup   Should calls be made to GitHub's API for user
                                information
-  -m, --lgin-mapping=<String=String>
+  -m, --login-mapping=<String=String>
                              Mapping of GitHub logins to names. Format:
                                name=login
-      --owner=<owner>        The GitHub owner of the repository
-      --repo=<repository>    The GitHub repository name
+      --repository=<ownerRepository>
+                             The GitHub repository in the form
+                               owner/repostiory. E.g., JabRef/jabref
       --startrevision=<startCommitRevStr>
                              The first revision to check (tag or commit id).
                                Excluded.
@@ -55,7 +56,9 @@ At the end, non-found committers are listed.
 The format is `<used name> <PR link> <commit link>`.
 Example:
 
-    Anish.Pal https://github.com/JabRef/jabref/pull/10829 https://github.com/JabRef/jabref/pull/10829/commits/d2d84923df2c6c7d59559da8d583ae17dc803c3d
+```text
+Anish.Pal https://github.com/JabRef/jabref/pull/10829 https://github.com/JabRef/jabref/pull/10829/commits/d2d84923df2c6c7d59559da8d583ae17dc803c3d
+```
 
 With that information, one can create a mapping from the committer name to the GitHub username.
 In this case: `Anish.Pal=pal-anish`

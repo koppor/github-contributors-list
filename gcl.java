@@ -76,7 +76,7 @@ public class gcl implements Callable<Integer> {
     private static final Pattern numberAtEnd = Pattern.compile(".*\\(#(\\d+)\\)$");
     private static final Pattern mergeCommit = Pattern.compile("^Merge pull request #(\\d+) from.*");
 
-    @Parameters(index = "0", description = "The path to the git repository to analyse.")
+    @Parameters(index = "0", arity = "0..1", description = "The path to the git repository to analyse.")
     private Path repositoryPath = Path.of(".");
 
     @Option(names = "--startrevision", description = "The first revision to check (tag or commit id). Excluded.")
@@ -126,6 +126,10 @@ public class gcl implements Callable<Integer> {
     private static final String githubUsersEmailSuffix = "@users.noreply.github.com";
 
     private record Contributor(String name, String url, String avatarUrl) implements Serializable {
+        public String getUserId() {
+            // Example: https://github.com/LoayGhreeb, then userId is LoeyGhreeb
+            return url.substring(url.lastIndexOf('/') + 1);
+        }
     }
 
     private record CoAuthor(String name, String email) {
@@ -136,7 +140,7 @@ public class gcl implements Callable<Integer> {
         }
     }
 
-    private SortedSet<Contributor> contributors = new TreeSet<>((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.name,b.name));
+    private SortedSet<Contributor> contributors = new TreeSet<>((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.name, b.name));
 
     private SortedSet<String> fallbacks = new TreeSet<>();
 
@@ -179,15 +183,32 @@ public class gcl implements Callable<Integer> {
             Git git = Git.open(repositoryPath.toFile());
             Repository repository = git.getRepository(); RevWalk revWalk = new RevWalk(repository)) {
 
+            String remoteOriginUrl = "n/a";
             if (!hasRepository) {
                 // Source: https://stackoverflow.com/a/38062680/873282
-                ownerRepository = git.getRepository().getConfig().getString("remote", "origin", "url");
-                ownerRepository = ownerRepository.substring(ownerRepository.indexOf(':') + 1, ownerRepository.lastIndexOf('.'));
+                remoteOriginUrl = git.getRepository().getConfig().getString("remote", "origin", "url");
+                if (remoteOriginUrl.startsWith("git@")) {
+                    ownerRepository = remoteOriginUrl.substring(remoteOriginUrl.indexOf(':') + 1, remoteOriginUrl.lastIndexOf('.'));
+                } else {
+                    ownerRepository = remoteOriginUrl.substring(remoteOriginUrl.indexOf("github.com/") + "github.com/".length());
+                    if (ownerRepository.endsWith(".git")) {
+                        ownerRepository = ownerRepository.substring(0, ownerRepository.length() - ".git".length());
+                    }
+                }
             }
 
             Logger.info("Connecting to {}...", ownerRepository);
             GitHub gitHub = GitHub.connect();
-            GHRepository gitHubRepository = gitHub.getRepository(ownerRepository);
+            GHRepository gitHubRepository;
+            try {
+                gitHubRepository = gitHub.getRepository(ownerRepository);
+            } catch (IllegalArgumentException e) {
+                Logger.error("Error in repository reference {}", ownerRepository);
+                if (!hasRepository) {
+                    Logger.error("It was automatically derived from {}", remoteOriginUrl);
+                }
+                return 1;
+            }
 
             MVMap<String, Contributor> emailToContributor = store.openMap("emailToContributor");
             MVMap<String, Contributor> loginToContributor = store.openMap("loginToContributor");
@@ -472,13 +493,15 @@ public class gcl implements Callable<Integer> {
 
         Contributor contributor = emailToContributor.get(email);
         if (contributor != null) {
-            // Example: Store "LoyGhreeb" https://github.com/LoayGhreeb in userId
-            String userId = contributor.url.substring(contributor.url.lastIndexOf('/') + 1);
+            // We already know this email, just check whether we ignore this one
+            String userId = contributor.getUserId();
             if (ignoredUsers.contains(userId)) {
                 Logger.trace("Ignored because of userId {}: {}", userId, coAuthor);
                 return Optional.empty();
             }
+            return Optional.of(contributor);
         }
+
         if (!ghLookup) {
             Logger.trace("Online lookup disabled. Using {} as fallback.", coAuthor.name);
             fallbacks.add(coAuthor.name);
