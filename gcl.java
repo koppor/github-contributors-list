@@ -126,6 +126,10 @@ public class gcl implements Callable<Integer> {
     private static final String githubUsersEmailSuffix = "@users.noreply.github.com";
 
     private record Contributor(String name, String url, String avatarUrl) implements Serializable {
+        public String getUserId() {
+            // Example: https://github.com/LoayGhreeb, then userId is LoeyGhreeb
+            return url.substring(url.lastIndexOf('/') + 1);
+        }
     }
 
     private record CoAuthor(String name, String email) {
@@ -136,7 +140,7 @@ public class gcl implements Callable<Integer> {
         }
     }
 
-    private SortedSet<Contributor> contributors = new TreeSet<>((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.name,b.name));
+    private SortedSet<Contributor> contributors = new TreeSet<>((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.name, b.name));
 
     private SortedSet<String> fallbacks = new TreeSet<>();
 
@@ -489,13 +493,15 @@ public class gcl implements Callable<Integer> {
 
         Contributor contributor = emailToContributor.get(email);
         if (contributor != null) {
-            // Example: Store "LoyGhreeb" https://github.com/LoayGhreeb in userId
-            String userId = contributor.url.substring(contributor.url.lastIndexOf('/') + 1);
+            // We already know this email, just check whether we ignore this one
+            String userId = contributor.getUserId();
             if (ignoredUsers.contains(userId)) {
                 Logger.trace("Ignored because of userId {}: {}", userId, coAuthor);
                 return Optional.empty();
             }
+            return Optional.of(contributor);
         }
+
         if (!ghLookup) {
             Logger.trace("Online lookup disabled. Using {} as fallback.", coAuthor.name);
             fallbacks.add(coAuthor.name);

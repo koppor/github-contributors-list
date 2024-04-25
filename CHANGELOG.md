@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Commits without any pull request number are also analyzed.
 - Fixed typo in parameter `--login-mapping`.
+- Handling of ignored users.
 
 ### Removed
 
