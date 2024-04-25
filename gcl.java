@@ -143,7 +143,7 @@ public class gcl implements Callable<Integer> {
     public Integer call() throws Exception {
         Logger.info("Connecting to {}/{}...", owner, repository);
         GitHub gitHub = GitHub.connect();
-        GHRepository jabRefRepository = gitHub.getRepository(owner + "/" + repository);
+        GHRepository gitHubRepository = gitHub.getRepository(owner + "/" + repository);
 
         Pattern numberAtEnd = Pattern.compile(".*\\(#(\\d+)\\)$");
         Pattern mergeCommit = Pattern.compile("^Merge pull request #(\\d+) from.*");
@@ -183,7 +183,7 @@ public class gcl implements Callable<Integer> {
                     if (commit.equals(startCommit)) {
                         break;
                     }
-                    analyzeCommit(days, startDate, commit, pb, numberAtEnd, mergeCommit, jabRefRepository, loginToContributor, emailToContributor, gitHub);
+                    analyzeCommit(days, startDate, commit, pb, numberAtEnd, mergeCommit, gitHubRepository, loginToContributor, emailToContributor, gitHub);
                 }
             }
         }
