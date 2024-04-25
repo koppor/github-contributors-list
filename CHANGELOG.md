@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## 2024-04-25
+## [2024-04-25]
 
 ### Added
 
@@ -26,6 +26,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Removed some hard-coded JabRef defaults (such as ignored users).
 
-## 2024-04-09
+## [2024-04-09]
 
 Initial release.
+
+[Unreleased]: https://github.com/koppor/github-contributors-list/compare/2024-04-25...main
+[2024-04-25]: https://github.com/koppor/github-contributors-list/compare/2024-04-09...2024-04-25
+[2024-04-09]: https://github.com/koppor/github-contributors-list/releases/tag/2024-04-09
