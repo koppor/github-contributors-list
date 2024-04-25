@@ -1,0 +1,10 @@
+{
+  "catalogs": {},
+  "aliases": {
+    "gcl": {
+      "script-ref": "gcl.java",
+      "java-agents": []
+    }
+  },
+  "templates": {}
+}
