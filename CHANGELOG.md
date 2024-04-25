@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- As default, [Renoavate Bot](https://www.mend.io/renovate/) is ignored as author.
+
 ### Changed
 
 - Can now run without any parameters: The current directory is used as the repository path.

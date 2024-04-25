@@ -92,11 +92,22 @@ public class gcl implements Callable<Integer> {
     private Integer cols  = 6;
 
     @Option(names = "--filter")
-    private List<String> ignoredUsers = List.of("dependabot[bot]", "dependabot", "apps/dependabot", "apps/githubactions", "renovate[bot]", "renovate", "renovate-bot", "renovate-approve");
+    private List<String> ignoredUsers = List.of(
+            "dependabot[bot]",
+            "dependabot",
+            "apps/dependabot",
+            "apps/githubactions",
+            "renovate[bot]",
+            "renovate-bot");
 
     @Option(names = "--filter-emails")
     private List<String> ignoredEmails = List.of(
-            "118344674+github-merge-queue@users.noreply.github.com", "github-merge-queue@users.noreply.github.com", "gradle-update-robot@regolo.cc", "team@moderne.io", "49699333+dependabot[bot]@users.noreply.github.com");
+            "49699333+dependabot[bot]@users.noreply.github.com",
+            "bot@renovateapp.com",
+            "118344674+github-merge-queue@users.noreply.github.com",
+            "github-merge-queue@users.noreply.github.com",
+            "gradle-update-robot@regolo.cc",
+            "team@moderne.io");
 
     @Option(names = { "-l", "--github-lookup" }, description = "Should calls be made to GitHub's API for user information", negatable = true)
     boolean ghLookup = true;
