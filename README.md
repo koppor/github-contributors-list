@@ -22,7 +22,7 @@ See <https://blog.jabref.org/2024/04/03/JabRef5-13/#special-thanks> for real-wor
 3. `cd` to the repository you want to analyze.
 4. `jbang gcl@koppor/github-contributors-list`
 
-```
+```terminal
 Usage: jbang gcl@koppor/github-contributors-list [-lhV] [--startrevision=<startCommitRevStr>]
            [--endrevision=<endCommitRevStr>] [--repository=<ownerRepository>]
            [--cols=<cols>] [--filter=<ignoredUsers>]...
@@ -56,7 +56,9 @@ At the end, non-found committers are listed.
 The format is `<used name> <PR link> <commit link>`.
 Example:
 
-    Anish.Pal https://github.com/JabRef/jabref/pull/10829 https://github.com/JabRef/jabref/pull/10829/commits/d2d84923df2c6c7d59559da8d583ae17dc803c3d
+```text
+Anish.Pal https://github.com/JabRef/jabref/pull/10829 https://github.com/JabRef/jabref/pull/10829/commits/d2d84923df2c6c7d59559da8d583ae17dc803c3d
+```
 
 With that information, one can create a mapping from the committer name to the GitHub username.
 In this case: `Anish.Pal=pal-anish`
