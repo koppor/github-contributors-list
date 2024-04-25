@@ -188,8 +188,9 @@ public class gcl implements Callable<Integer> {
 
             Logger.info("Connecting to {}...", ownerRepository);
             GitHub gitHub = GitHub.connect();
+            GHRepository gitHubRepository;
             try {
-                GHRepository gitHubRepository = gitHub.getRepository(ownerRepository);
+                gitHubRepository = gitHub.getRepository(ownerRepository);
             } catch (IllegalArgumentException e) {
                 Logger.error("Error in repository reference {}", ownerRepository);
                 if (!hasRepository) {
