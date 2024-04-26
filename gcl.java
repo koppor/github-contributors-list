@@ -41,18 +41,16 @@ import me.tongfei.progressbar.ProgressBar;
 import one.util.streamex.StreamEx;
 import org.eclipse.collections.api.multimap.MutableMultimap;
 import org.eclipse.collections.impl.factory.Multimaps;
+import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.Constants;
-import org.eclipse.jgit.revwalk.RevSort;
-import org.kohsuke.github.GHFileNotFoundException;
-import org.tinylog.Logger;
-
-import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
+import org.eclipse.jgit.revwalk.RevSort;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.h2.mvstore.MVMap;
 import org.h2.mvstore.MVStore;
+import org.kohsuke.github.GHFileNotFoundException;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHPullRequestCommitDetail;
 import org.kohsuke.github.GHRepository;
@@ -60,7 +58,7 @@ import org.kohsuke.github.GHUser;
 import org.kohsuke.github.GitHub;
 import org.kohsuke.github.PagedIterator;
 import org.kohsuke.github.PagedSearchIterable;
-
+import org.tinylog.Logger;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -92,7 +90,7 @@ public class gcl implements Callable<Integer> {
     private String ownerRepository;
 
     @Option(names = "--cols", description = "Number of columns")
-    private Integer cols  = 6;
+    private Integer cols = 6;
 
     @Option(names = "--filter")
     private List<String> ignoredUsers = List.of(
@@ -112,7 +110,7 @@ public class gcl implements Callable<Integer> {
             "gradle-update-robot@regolo.cc",
             "team@moderne.io");
 
-    @Option(names = { "-l", "--github-lookup" }, description = "Should calls be made to GitHub's API for user information", negatable = true)
+    @Option(names = {"-l", "--github-lookup"}, description = "Should calls be made to GitHub's API for user information", negatable = true)
     boolean ghLookup = true;
 
     @Option(names = {"-m", "--login-mapping"}, description = {"Mapping of GitHub logins to names. Format: name=login"})
@@ -180,34 +178,50 @@ public class gcl implements Callable<Integer> {
         try (MVStore store = new MVStore.Builder().
                 fileName("gcl.mv").
                 open();
-            Git git = Git.open(repositoryPath.toFile());
-            Repository repository = git.getRepository()) {
+             Git git = Git.open(repositoryPath.toFile());
+             Repository repository = git.getRepository()) {
 
-            RepositoryData repositoryData = getRepositoryData(git, store, repository);
-            if (repositoryData == null) {
+            String remoteOriginUrl = "n/a";
+            if (!hasRepository) {
+                // Source: https://stackoverflow.com/a/38062680/873282
+                remoteOriginUrl = git.getRepository().getConfig().getString("remote", "origin", "url");
+                if (remoteOriginUrl.startsWith("git@")) {
+                    ownerRepository = remoteOriginUrl.substring(remoteOriginUrl.indexOf(':') + 1, remoteOriginUrl.lastIndexOf('.'));
+                } else {
+                    ownerRepository = remoteOriginUrl.substring(remoteOriginUrl.indexOf("github.com/") + "github.com/".length());
+                    if (ownerRepository.endsWith(".git")) {
+                        ownerRepository = ownerRepository.substring(0, ownerRepository.length() - ".git".length());
+                    }
+                }
+            }
+
+            Logger.info("Connecting to {}...", ownerRepository);
+            GitHub gitHub = GitHub.connect();
+            GHRepository gitHubRepository;
+            try {
+                gitHubRepository = gitHub.getRepository(ownerRepository);
+            } catch (IllegalArgumentException e) {
+                Logger.error("Error in repository reference {}", ownerRepository);
+                if (!hasRepository) {
+                    Logger.error("It was automatically derived from {}", remoteOriginUrl);
+                }
                 return 1;
             }
 
-            DateTimeFormatter isoDateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE.withZone(ZoneId.systemDefault());
-            Logger.info("Analyzing {} days backwards: From {} to {}",
-                    repositoryData.days(),
-                    isoDateTimeFormatter.format(repositoryData.endDate()),
-                    isoDateTimeFormatter.format(repositoryData.startDate()));
-
+            CommitRangeInformation commitRangeInformation = getCommitRangeInformation(repository, git);
             MVMap<String, Contributor> loginToContributor = store.openMap("loginToContributor");
             MVMap<String, Contributor> emailToContributor = store.openMap("emailToContributor");
-
-            try (ProgressBar pb = new ProgressBar("Analyzing", (int) repositoryData.days());
-                 RevWalk revWalk = new RevWalk(repository)) {
-                revWalk.markStart(repositoryData.endCommit());
+            // We need a completely new RevWalk object to have RevSort.REVERSE working
+            // MWE shown at https://stackoverflow.com/a/78390567/873282.
+            try (RevWalk revWalk = new RevWalk(repository);
+                 ProgressBar progressBar = new ProgressBar("Analyzing", (int) commitRangeInformation.days())) {
+                revWalk.markUninteresting(revWalk.parseCommit(repository.resolve(commitRangeInformation.startCommitId())));
+                revWalk.markStart(revWalk.parseCommit(repository.resolve(commitRangeInformation.endCommitId())));
+                revWalk.sort(RevSort.REVERSE);
                 Iterator<RevCommit> commitIterator = revWalk.iterator();
-
                 while (commitIterator.hasNext()) {
                     RevCommit commit = commitIterator.next();
-                    if (commit.equals(repositoryData.startCommit())) {
-                        break;
-                    }
-                    analyzeCommit(pb, repositoryData.gitHub(), repositoryData.gitHubRepository(), loginToContributor, emailToContributor, repositoryData.startDate(), commit);
+                    analyzeCommit(progressBar, gitHub, gitHubRepository, loginToContributor, emailToContributor, commitRangeInformation.startDate(), commit);
                 }
             }
         }
@@ -227,36 +241,11 @@ public class gcl implements Callable<Integer> {
         return 0;
     }
 
-    private RepositoryData getRepositoryData(Git git, MVStore store, Repository repository) throws IOException, GitAPIException {
-        String remoteOriginUrl = "n/a";
-        if (!hasRepository) {
-            // Source: https://stackoverflow.com/a/38062680/873282
-            remoteOriginUrl = git.getRepository().getConfig().getString("remote", "origin", "url");
-            if (remoteOriginUrl.startsWith("git@")) {
-                ownerRepository = remoteOriginUrl.substring(remoteOriginUrl.indexOf(':') + 1, remoteOriginUrl.lastIndexOf('.'));
-            } else {
-                ownerRepository = remoteOriginUrl.substring(remoteOriginUrl.indexOf("github.com/") + "github.com/".length());
-                if (ownerRepository.endsWith(".git")) {
-                    ownerRepository = ownerRepository.substring(0, ownerRepository.length() - ".git".length());
-                }
-            }
-        }
-
-        Logger.info("Connecting to {}...", ownerRepository);
-        GitHub gitHub = GitHub.connect();
-        GHRepository gitHubRepository;
-        try {
-            gitHubRepository = gitHub.getRepository(ownerRepository);
-        } catch (IllegalArgumentException e) {
-            Logger.error("Error in repository reference {}", ownerRepository);
-            if (!hasRepository) {
-                Logger.error("It was automatically derived from {}", remoteOriginUrl);
-            }
-            return null;
-        }
-
+    private CommitRangeInformation getCommitRangeInformation(Repository repository, Git git) throws IOException, GitAPIException {
         RevCommit startCommit;
         RevCommit endCommit;
+        Instant startDate;
+        long days;
         try (RevWalk revWalk = new RevWalk(repository)) {
             if (hasStartRevision) {
                 startCommit = revWalk.parseCommit(repository.resolve(startCommitRevStr));
@@ -276,25 +265,31 @@ public class gcl implements Callable<Integer> {
                 Logger.trace("No explicit end commit, using {}", endCommit.getId().name());
             }
 
+            startDate = startCommit.getAuthorIdent().getWhen().toInstant();
+            Instant endDate = endCommit.getAuthorIdent().getWhen().toInstant();
+
+            if (startDate.isAfter(endDate)) {
+                Logger.warn("Start date is after end date. Swapping.");
+                // Swap start and end date
+                Instant tmp = endDate;
+                endDate = startDate;
+                startDate = tmp;
+            }
+
+            days = Duration.between(startDate, endDate).toDays();
+
+            DateTimeFormatter isoDateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE.withZone(ZoneId.systemDefault());
+            Logger.info("Analyzing {} days: From {} to {}",
+                    days,
+                    isoDateTimeFormatter.format(endDate),
+                    isoDateTimeFormatter.format(startDate));
+
         }
 
-        Instant startDate = startCommit.getAuthorIdent().getWhen().toInstant();
-        Instant endDate = endCommit.getAuthorIdent().getWhen().toInstant();
-
-        if (startDate.isAfter(endDate)) {
-            Logger.warn("Start date is after end date. Swapping.");
-            // Swap start and end date
-            Instant tmp = endDate;
-            endDate = startDate;
-            startDate = tmp;
-        }
-
-        long days = Duration.between(startDate, endDate).toDays();
-
-        return new RepositoryData(gitHub, gitHubRepository, startCommit, startDate, endCommit, endDate, days);
+        return new CommitRangeInformation(startCommit.name(), startDate, days, endCommit.name());
     }
 
-    private record RepositoryData(GitHub gitHub, GHRepository gitHubRepository, RevCommit startCommit, Instant startDate, RevCommit endCommit, Instant endDate, long days) {
+    private record CommitRangeInformation(String startCommitId, Instant startDate, long days, String endCommitId) {
     }
 
     private void outputFallbacks() {
@@ -316,6 +311,8 @@ public class gcl implements Callable<Integer> {
 
     /**
      * Analyzes a commit found in the repository. Will then diverge to the pull request analysis if a PR number is found in the commit message. Otherwise, the commit is analyzed as a regular commit.
+     *
+     * @param progressBar the progress bar - required display the progress of the analysis
      */
     private void analyzeCommit(ProgressBar progressBar, GitHub gitHub, GHRepository ghRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, Instant startDate, RevCommit commit) throws IOException {
         long daysSinceFirstCommit = Duration.between(startDate, commit.getAuthorIdent().getWhen().toInstant()).toDays();
@@ -341,7 +338,7 @@ public class gcl implements Callable<Integer> {
             Logger.trace("No PR number found in commit message");
             addContributorFromRevCommit(commit, emailToContributor, gitHub);
         } else {
-            if (!analyzePullRequest(progressBar, ghRepository, loginToContributor, emailToContributor, gitHub, number)) {
+            if (!analyzePullRequest(progressBar, ghRepository, loginToContributor, emailToContributor, gitHub, number, commit.getName())) {
                 Logger.trace("PR was 404. Interpreting commit itself");
                 addContributorFromRevCommit(commit, emailToContributor, gitHub);
             }
@@ -356,7 +353,7 @@ public class gcl implements Callable<Integer> {
     /**
      * @return false if the PR did not exist
      */
-    private boolean analyzePullRequest(ProgressBar progressBar, GHRepository ghRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String number) throws IOException {
+    private boolean analyzePullRequest(ProgressBar progressBar, GHRepository ghRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String number, String prCommitNumber) throws IOException {
         Logger.trace("Investigating PR #{}", number);
         this.currentPR = number;
         progressBar.setExtraMessage("PR " + number);
@@ -365,7 +362,7 @@ public class gcl implements Callable<Integer> {
         try {
             pullRequest = ghRepository.getPullRequest(prNumber);
         } catch (GHFileNotFoundException e) {
-            Logger.warn("Pull request {} not found", prNumber);
+            Logger.warn("Pull request {} not found. Referenced from commit {}.", prNumber, prCommitNumber);
             return false;
         }
         GHUser user = pullRequest.getUser();
@@ -397,12 +394,12 @@ public class gcl implements Callable<Integer> {
 
         // Parse commit message for "Co-authored-by" hints
         commitMessage.lines()
-                 .filter(line -> line.startsWith("Co-authored-by:"))
-                 .map(CoAuthor::new)
-                 .map(coAuthor -> lookupContributorData(emailToContributor, gitHub, coAuthor))
-                 .filter(Optional::isPresent)
-                 .map(Optional::get)
-                 .forEach(contributors::add);
+                     .filter(line -> line.startsWith("Co-authored-by:"))
+                     .map(CoAuthor::new)
+                     .map(coAuthor -> lookupContributorData(emailToContributor, gitHub, coAuthor))
+                     .filter(Optional::isPresent)
+                     .map(Optional::get)
+                     .forEach(contributors::add);
     }
 
     private void printMarkdownSnippet() {
@@ -442,7 +439,7 @@ public class gcl implements Callable<Integer> {
             return contributor.name();
         }
         return """
-            [<img alt="%s" src="%s&w=%4$s" width="%4$s">](%3$s)""".formatted(contributor.name(), contributor.avatarUrl(), contributor.url(), avatarImgWidth);
+                [<img alt="%s" src="%s&w=%4$s" width="%4$s">](%3$s)""".formatted(contributor.name(), contributor.avatarUrl(), contributor.url(), avatarImgWidth);
     }
 
     private static String getFormattedSecondLine(Contributor contributor) {
