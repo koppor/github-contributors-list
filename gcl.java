@@ -168,9 +168,6 @@ public class gcl implements Callable<Integer> {
         System.exit(exitCode);
     }
 
-    private static void setDefaultValues(String[] args, CommandLine commandLine) {
-    }
-
     @Override
     public Integer call() throws Exception {
         Logger.info("Opening local git repository {}...", repositoryPath);
