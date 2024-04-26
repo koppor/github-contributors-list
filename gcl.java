@@ -21,10 +21,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -40,16 +42,17 @@ import me.tongfei.progressbar.ProgressBar;
 import one.util.streamex.StreamEx;
 import org.eclipse.collections.api.multimap.MutableMultimap;
 import org.eclipse.collections.impl.factory.Multimaps;
-import org.eclipse.jgit.lib.Constants;
-import org.eclipse.jgit.revwalk.RevSort;
-import org.tinylog.Logger;
-
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
+import org.eclipse.jgit.revwalk.RevSort;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.h2.mvstore.MVMap;
 import org.h2.mvstore.MVStore;
+import org.kohsuke.github.GHCommit;
+import org.kohsuke.github.GHFileNotFoundException;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHPullRequestCommitDetail;
 import org.kohsuke.github.GHRepository;
@@ -57,14 +60,14 @@ import org.kohsuke.github.GHUser;
 import org.kohsuke.github.GitHub;
 import org.kohsuke.github.PagedIterator;
 import org.kohsuke.github.PagedSearchIterable;
-
+import org.tinylog.Logger;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 @Command(name = "gcl",
-        version = "gcl 0.1.0",
+        version = "gcl 2024-04-26",
         mixinStandardHelpOptions = true,
         sortSynopsis = false)
 public class gcl implements Callable<Integer> {
@@ -75,6 +78,7 @@ public class gcl implements Callable<Integer> {
 
     private static final Pattern numberAtEnd = Pattern.compile(".*\\(#(\\d+)\\)$");
     private static final Pattern mergeCommit = Pattern.compile("^Merge pull request #(\\d+) from.*");
+    private final String NO_PR = "(none)";
 
     @Parameters(index = "0", arity = "0..1", description = "The path to the git repository to analyse.")
     private Path repositoryPath = Path.of(".");
@@ -89,10 +93,11 @@ public class gcl implements Callable<Integer> {
     private String ownerRepository;
 
     @Option(names = "--cols", description = "Number of columns")
-    private Integer cols  = 6;
+    private Integer cols = 6;
 
     @Option(names = "--filter")
     private List<String> ignoredUsers = List.of(
+            "allcontributors[bot]",
             "dependabot[bot]",
             "dependabot",
             "apps/dependabot",
@@ -109,7 +114,7 @@ public class gcl implements Callable<Integer> {
             "gradle-update-robot@regolo.cc",
             "team@moderne.io");
 
-    @Option(names = { "-l", "--github-lookup" }, description = "Should calls be made to GitHub's API for user information", negatable = true)
+    @Option(names = {"-l", "--github-lookup"}, description = "Should calls be made to GitHub's API for user information", negatable = true)
     boolean ghLookup = true;
 
     @Option(names = {"-m", "--login-mapping"}, description = {"Mapping of GitHub logins to names. Format: name=login"})
@@ -125,7 +130,7 @@ public class gcl implements Callable<Integer> {
 
     private static final String githubUsersEmailSuffix = "@users.noreply.github.com";
 
-    private record Contributor(String name, String url, String avatarUrl) implements Serializable {
+    private record Contributor(String name, String url, String avatarUrl, String commitName) implements Serializable {
         public String getUserId() {
             // Example: https://github.com/LoayGhreeb, then userId is LoeyGhreeb
             return url.substring(url.lastIndexOf('/') + 1);
@@ -149,8 +154,6 @@ public class gcl implements Callable<Integer> {
     private record PRAppearance(String prNumber, String sha) {
     }
 
-    private String currentPR = "";
-    private String currentSHA = "";
     private MutableMultimap<String, PRAppearance> fallbackSources = Multimaps.mutable.sortedBag.empty(Comparator.comparing(PRAppearance::prNumber));
 
     public static void main(String... args) throws Exception {
@@ -165,9 +168,6 @@ public class gcl implements Callable<Integer> {
         System.exit(exitCode);
     }
 
-    private static void setDefaultValues(String[] args, CommandLine commandLine) {
-    }
-
     @Override
     public Integer call() throws Exception {
         Logger.info("Opening local git repository {}...", repositoryPath);
@@ -180,8 +180,8 @@ public class gcl implements Callable<Integer> {
         try (MVStore store = new MVStore.Builder().
                 fileName("gcl.mv").
                 open();
-            Git git = Git.open(repositoryPath.toFile());
-            Repository repository = git.getRepository(); RevWalk revWalk = new RevWalk(repository)) {
+             Git git = Git.open(repositoryPath.toFile());
+             Repository repository = git.getRepository()) {
 
             String remoteOriginUrl = "n/a";
             if (!hasRepository) {
@@ -199,6 +199,7 @@ public class gcl implements Callable<Integer> {
 
             Logger.info("Connecting to {}...", ownerRepository);
             GitHub gitHub = GitHub.connect();
+
             GHRepository gitHubRepository;
             try {
                 gitHubRepository = gitHub.getRepository(ownerRepository);
@@ -210,47 +211,20 @@ public class gcl implements Callable<Integer> {
                 return 1;
             }
 
-            MVMap<String, Contributor> emailToContributor = store.openMap("emailToContributor");
+            CommitRangeInformation commitRangeInformation = getCommitRangeInformation(repository, git);
             MVMap<String, Contributor> loginToContributor = store.openMap("loginToContributor");
-
-            RevCommit startCommit;
-            if (hasStartRevision) {
-                startCommit = revWalk.parseCommit(repository.resolve(startCommitRevStr));
-            } else {
-                RevCommit root = revWalk.parseCommit(repository.resolve(Constants.HEAD));
+            MVMap<String, Contributor> emailToContributor = store.openMap("emailToContributor");
+            // We need a completely new RevWalk object to have RevSort.REVERSE working
+            // MWE shown at https://stackoverflow.com/a/78390567/873282.
+            try (RevWalk revWalk = new RevWalk(repository);
+                 ProgressBar progressBar = new ProgressBar("Analyzing", (int) commitRangeInformation.days())) {
+                revWalk.markUninteresting(revWalk.parseCommit(repository.resolve(commitRangeInformation.startCommitId())));
+                revWalk.markStart(revWalk.parseCommit(repository.resolve(commitRangeInformation.endCommitId())));
                 revWalk.sort(RevSort.REVERSE);
-                revWalk.markStart(root);
-                startCommit = revWalk.next();
-                Logger.trace("No explicit start commit, using {}", startCommit.getId().name());
-            }
-
-            RevCommit endCommit;
-            if (hasEndRevision) {
-                endCommit = revWalk.parseCommit(repository.resolve(endCommitRevStr));
-            } else {
-                // Hint by https://stackoverflow.com/a/59274329/873282
-                endCommit = git.log().setMaxCount(1).call().iterator().next();
-                Logger.trace("No explicit end commit, using {}", endCommit.getId().name());
-            }
-
-            Instant startDate = startCommit.getAuthorIdent().getWhen().toInstant();
-            Instant endDate = endCommit.getAuthorIdent().getWhen().toInstant();
-
-            long days = Duration.between(startDate, endDate).toDays();
-            Logger.info("Analyzing {} days backwards: From {} to {}", days, DateTimeFormatter.ISO_INSTANT.format(endDate), DateTimeFormatter.ISO_INSTANT.format(startDate));
-
-            try (ProgressBar pb = new ProgressBar("Analyzing", (int) days)) {
-                pb.maxHint((int) days);
-
-                revWalk.markStart(endCommit);
                 Iterator<RevCommit> commitIterator = revWalk.iterator();
-
                 while (commitIterator.hasNext()) {
                     RevCommit commit = commitIterator.next();
-                    if (commit.equals(startCommit)) {
-                        break;
-                    }
-                    analyzeCommit(days, startDate, commit, pb, gitHubRepository, loginToContributor, emailToContributor, gitHub);
+                    analyzeCommit(progressBar, gitHub, gitHubRepository, loginToContributor, emailToContributor, commitRangeInformation.startDate(), commit);
                 }
             }
         }
@@ -270,6 +244,57 @@ public class gcl implements Callable<Integer> {
         return 0;
     }
 
+    private CommitRangeInformation getCommitRangeInformation(Repository repository, Git git) throws IOException, GitAPIException {
+        RevCommit startCommit;
+        RevCommit endCommit;
+        Instant startDate;
+        long days;
+        try (RevWalk revWalk = new RevWalk(repository)) {
+            if (hasStartRevision) {
+                startCommit = revWalk.parseCommit(repository.resolve(startCommitRevStr));
+            } else {
+                RevCommit root = revWalk.parseCommit(repository.resolve(Constants.HEAD));
+                revWalk.sort(RevSort.REVERSE);
+                revWalk.markStart(root);
+                startCommit = revWalk.next();
+                Logger.trace("No explicit start commit, using {}", startCommit.getId().name());
+            }
+
+            if (hasEndRevision) {
+                endCommit = revWalk.parseCommit(repository.resolve(endCommitRevStr));
+            } else {
+                // Hint by https://stackoverflow.com/a/59274329/873282
+                endCommit = git.log().setMaxCount(1).call().iterator().next();
+                Logger.trace("No explicit end commit, using {}", endCommit.getId().name());
+            }
+
+            startDate = startCommit.getAuthorIdent().getWhen().toInstant();
+            Instant endDate = endCommit.getAuthorIdent().getWhen().toInstant();
+
+            if (startDate.isAfter(endDate)) {
+                Logger.warn("Start date is after end date. Swapping.");
+                // Swap start and end date
+                Instant tmp = endDate;
+                endDate = startDate;
+                startDate = tmp;
+            }
+
+            days = Duration.between(startDate, endDate).toDays();
+
+            DateTimeFormatter isoDateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE.withZone(ZoneId.systemDefault());
+            Logger.info("Analyzing {} days: From {} to {}",
+                    days,
+                    isoDateTimeFormatter.format(startDate),
+                    isoDateTimeFormatter.format(endDate));
+
+        }
+
+        return new CommitRangeInformation(startCommit.name(), startDate, days, endCommit.name());
+    }
+
+    private record CommitRangeInformation(String startCommitId, Instant startDate, long days, String endCommitId) {
+    }
+
     private void outputFallbacks() {
         System.out.println();
         System.out.println("Fallbacks:");
@@ -279,84 +304,155 @@ public class gcl implements Callable<Integer> {
         fallbacks.stream().forEach(fallback -> {
             String fallbackFormatted = String.format("%-" + maxLength + "s", fallback);
             fallbackSources.get(fallback).stream().forEach(pr -> {
-                System.out.println(fallbackFormatted
-                        + " https://github.com/%s/pull/%s".formatted(ownerRepository, pr.prNumber)
-                        + " https://github.com/%s/pull/%s/commits/%s".formatted(ownerRepository, pr.prNumber, pr.sha)
-                );
+                if (pr.prNumber.equals(NO_PR)) {
+                    System.out.println(fallbackFormatted
+                            + " https://github.com/%s/commit/%s".formatted(ownerRepository, pr.sha));
+                } else {
+                    System.out.println(fallbackFormatted
+                            + " https://github.com/%s/pull/%s".formatted(ownerRepository, pr.prNumber)
+                            + " https://github.com/%s/pull/%s/commits/%s".formatted(ownerRepository, pr.prNumber, pr.sha)
+                    );
+                }
             });
         });
     }
 
     /**
      * Analyzes a commit found in the repository. Will then diverge to the pull request analysis if a PR number is found in the commit message. Otherwise, the commit is analyzed as a regular commit.
+     *
+     * @param progressBar the progress bar - required display the progress of the analysis
      */
-    private void analyzeCommit(long days, Instant startDate, RevCommit commit, ProgressBar progressBar, GHRepository ghRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub) throws IOException {
-        long daysSinceLast = days - Duration.between(startDate, commit.getAuthorIdent().getWhen().toInstant()).toDays();
-        Logger.trace("{} daysSinceLast", daysSinceLast);
-        progressBar.stepTo((int) daysSinceLast);
+    private void analyzeCommit(ProgressBar progressBar, GitHub gitHub, GHRepository ghRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, Instant startDate, RevCommit commit) throws IOException {
+        long daysSinceFirstCommit = Duration.between(startDate, commit.getAuthorIdent().getWhen().toInstant()).toDays();
+        Logger.trace("{} daysSinceFirstCommit", daysSinceFirstCommit);
+
+        progressBar.stepTo(Math.max((int) daysSinceFirstCommit, progressBar.getCurrent()));
 
         String shortMessage = commit.getShortMessage();
         Logger.trace("Checking commit \"{}\" ({})", shortMessage, commit.getId().name());
 
         Matcher matcher = numberAtEnd.matcher(shortMessage);
-        String number = null;
+        String prNumber = null;
         if (matcher.matches()) {
-            number = matcher.group(1);
+            prNumber = matcher.group(1);
         }
-        if (number == null) {
+        if (prNumber == null) {
             matcher = mergeCommit.matcher(shortMessage);
             if (matcher.matches()) {
-                number = matcher.group(1);
+                prNumber = matcher.group(1);
             }
         }
-        if (number == null) {
+        if (prNumber == null) {
             Logger.trace("No PR number found in commit message");
-            CoAuthor authorOfCommit = new CoAuthor(commit.getAuthorIdent().getName(), commit.getAuthorIdent().getEmailAddress());
-            analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, commit.getFullMessage());
+            addContributorFromRevCommit(commit, emailToContributor, gitHub, ghRepository);
         } else {
-            analyzePullRequest(progressBar, ghRepository, loginToContributor, emailToContributor, gitHub, number);
+            if (!analyzePullRequest(progressBar, ghRepository, loginToContributor, emailToContributor, gitHub, prNumber, commit.getName())) {
+                Logger.trace("PR was 404. Interpreting commit itself");
+                addContributorFromRevCommit(commit, emailToContributor, gitHub, ghRepository);
+            }
         }
     }
 
-    private void analyzePullRequest(ProgressBar progressBar, GHRepository ghRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String number) throws IOException {
+    private void addContributorFromRevCommit(RevCommit commit, MVMap<String, Contributor> emailToContributor, GitHub gitHub, GHRepository ghRepository) {
+        CoAuthor authorOfCommit = new CoAuthor(commit.getAuthorIdent().getName(), commit.getAuthorIdent().getEmailAddress());
+        GHCommit commit1 = null;
+        try {
+             commit1 = ghRepository.getCommit(commit.getName());
+        } catch (IOException e) {
+            Logger.error("Could not get commit {} from GitHub", commit.getName(), e);
+        }
+
+        if ((commit1 != null)) {
+            try {
+                GHUser author = commit1.getAuthor();
+                if (author == null) {
+                    Logger.debug("GitHub did not provide author for {} ({})", commit.getName(), commit.getAuthorIdent().toExternalString());
+                } else {
+                    String name = author.getName();
+                    if (name == null) {
+                        name = author.getLogin();
+                    }
+
+                    Contributor contributor = new Contributor(name, author.getHtmlUrl().toString(), author.getAvatarUrl(), commit.getName());
+
+                    boolean ignored = false;
+
+                    String email = author.getEmail();
+                    if (email != null && ignoredEmails.contains(email)) {
+                        Logger.trace("Ignored because of email: {}", contributor);
+                        ignored = true;
+                    }
+
+                    if (name != null && ignoredUsers.contains(name)) {
+                        Logger.trace("Ignored because of name: {}", contributor);
+                        ignored = true;
+                    }
+
+                    if (!ignored) {
+                        emailToContributor.put(commit.getAuthorIdent().getEmailAddress(), contributor);
+                        contributors.add(contributor);
+                    }
+                }
+            } catch (IOException e) {
+                Logger.error("Could not get login information from commit {} from GitHub", commit.getName(), e);
+            }
+        }
+
+        analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, NO_PR, commit.getName(), commit.getFullMessage());
+    }
+
+    /**
+     * @param number the PR number
+     * @return false if the PR did not exist
+     */
+    private boolean analyzePullRequest(ProgressBar progressBar, GHRepository ghRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String number, String prCommitNumber) throws IOException {
         Logger.trace("Investigating PR #{}", number);
-        this.currentPR = number;
         progressBar.setExtraMessage("PR " + number);
         int prNumber = Integer.parseInt(number);
-        GHPullRequest pullRequest = ghRepository.getPullRequest(prNumber);
+        GHPullRequest pullRequest;
+        try {
+            pullRequest = ghRepository.getPullRequest(prNumber);
+        } catch (GHFileNotFoundException e) {
+            Logger.warn("Pull request #{} not found. Referenced from commit {}.", prNumber, prCommitNumber);
+            return false;
+        }
         GHUser user = pullRequest.getUser();
-        storeContributorData(loginToContributor, emailToContributor, user);
+        storeContributorData(loginToContributor, emailToContributor, user, prCommitNumber);
 
         PagedIterator<GHPullRequestCommitDetail> ghCommitIterator = pullRequest.listCommits().iterator();
         while (ghCommitIterator.hasNext()) {
             GHPullRequestCommitDetail ghCommit = ghCommitIterator.next();
-            GHPullRequestCommitDetail.Commit theCommit = ghCommit.getCommit();
-
-            this.currentSHA = ghCommit.getSha();
-
-            // GitHub's API does not set the real GitHub username, so following does not work
-            // This is very different from the information, which is available in GitHub's web interface
-            // storeContributorData(loginToContributor, gitHub, theCommit.getAuthor().getUsername());
-            // storeContributorData(loginToContributor, gitHub, theCommit.getCommitter().getUsername());
-
-            CoAuthor authorOfCommit = new CoAuthor(theCommit.getAuthor().getName(), theCommit.getAuthor().getEmail());
-            analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, theCommit.getMessage());
+            analyzeGhCommit(emailToContributor, gitHub, number, ghCommit);
         }
+
+        return true;
     }
 
-    private void analyzeRegularCommit(CoAuthor authorOfCommit, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String commitMessage) {
-        Optional<Contributor> contributor = lookupContributorData(emailToContributor, gitHub, authorOfCommit);
+    private void analyzeGhCommit(MVMap<String, Contributor> emailToContributor, GitHub gitHub, String number, GHPullRequestCommitDetail ghCommit) {
+        GHPullRequestCommitDetail.Commit theCommit = ghCommit.getCommit();
+
+        // GitHub's API does not set the real GitHub username, so following does not work
+        // This is very different from the information, which is available in GitHub's web interface
+        // storeContributorData(loginToContributor, gitHub, theCommit.getAuthor().getUsername());
+        // storeContributorData(loginToContributor, gitHub, theCommit.getCommitter().getUsername());
+
+        CoAuthor authorOfCommit = new CoAuthor(theCommit.getAuthor().getName(), theCommit.getAuthor().getEmail());
+        analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, number, ghCommit.getSha(), theCommit.getMessage());
+    }
+
+    private void analyzeRegularCommit(CoAuthor authorOfCommit, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String prNumber, String commitName, String commitMessage) {
+        Optional<Contributor> contributor = lookupContributorData(emailToContributor, gitHub, prNumber, commitName, authorOfCommit);
         // In case an author is ignored, the Optional is empty
         contributor.ifPresent(contributors::add);
 
         // Parse commit message for "Co-authored-by" hints
         commitMessage.lines()
-                 .filter(line -> line.startsWith("Co-authored-by:"))
-                 .map(CoAuthor::new)
-                 .map(coAuthor -> lookupContributorData(emailToContributor, gitHub, coAuthor))
-                 .filter(Optional::isPresent)
-                 .map(Optional::get)
-                 .forEach(contributors::add);
+                     .filter(line -> line.startsWith("Co-authored-by:"))
+                     .map(CoAuthor::new)
+                     .map(coAuthor -> lookupContributorData(emailToContributor, gitHub, prNumber, commitName, coAuthor))
+                     .filter(Optional::isPresent)
+                     .map(Optional::get)
+                     .forEach(contributors::add);
     }
 
     private void printMarkdownSnippet() {
@@ -366,7 +462,7 @@ public class gcl implements Callable<Integer> {
         String headingSeparator = "|" + " --  |".repeat(cols);
         System.out.println(headingSeparator);
 
-        StreamEx.ofSubLists(contributors.stream().toList(), cols)
+        StreamEx.ofSubLists(cleanUpContributors(contributors), cols)
                 .forEach(subList -> {
                     boolean isShorterList = subList.size() < cols;
 
@@ -391,12 +487,30 @@ public class gcl implements Callable<Integer> {
                 });
     }
 
+    private List<Contributor> cleanUpContributors(SortedSet<Contributor> contributors) {
+        LinkedHashMap<String, Contributor> urlToContributor = new LinkedHashMap<>();
+        contributors.forEach(contributor -> {
+            if (urlToContributor.containsKey(contributor.url())) {
+                Logger.trace("Duplicate URL found: {}", contributor.url());
+                Contributor existingContributor = urlToContributor.get(contributor.url());
+                if (!existingContributor.name().contains(" ")) {
+                    // Heuristics: Names without space are not real names (but rather login names)
+                    Logger.trace("Replacing {} with {}", existingContributor, contributor);
+                    urlToContributor.put(contributor.url(), contributor);
+                }
+            } else {
+                urlToContributor.put(contributor.url(), contributor);
+            }
+        });
+        return urlToContributor.values().stream().toList();
+    }
+
     private static String getFormattedFirstLine(Contributor contributor) {
         if (contributor.url().isEmpty()) {
             return contributor.name();
         }
         return """
-            [<img alt="%s" src="%s&w=%4$s" width="%4$s">](%3$s)""".formatted(contributor.name(), contributor.avatarUrl(), contributor.url(), avatarImgWidth);
+                [<img alt="%s" src="%s&w=%4$s" width="%4$s">](%3$s)""".formatted(contributor.name(), contributor.avatarUrl(), contributor.url(), avatarImgWidth);
     }
 
     private static String getFormattedSecondLine(Contributor contributor) {
@@ -410,17 +524,18 @@ public class gcl implements Callable<Integer> {
     /**
      * Derives the contributor based on given ghUser and adds it to the loginToContributor and emailToContributor maps as well as to the contributors set.
      */
-    private void storeContributorData(MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GHUser ghUser) {
+    private void storeContributorData(MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GHUser ghUser, String prCommitNumber) {
         Logger.trace("Handling {}", ghUser);
         String login = ghUser.getLogin();
+
+        if (ignoredUsers.contains(login)) {
+            Logger.trace("Ignored because of login {}", login);
+            return;
+        }
 
         Contributor contributor = loginToContributor.get(login);
         Logger.trace("Found contributor {}", contributor);
         if (contributor != null) {
-            if (ignoredUsers.contains(login)) {
-                Logger.trace("Ignored because of login {}", login);
-                return;
-            }
             contributors.add(contributor);
             putIntoEmailToContributorMap(emailToContributor, ghUser, contributor);
             return;
@@ -442,7 +557,7 @@ public class gcl implements Callable<Integer> {
             return;
         }
 
-        Contributor newContributor = new Contributor(name, ghUser.getHtmlUrl().toString(), ghUser.getAvatarUrl());
+        Contributor newContributor = new Contributor(name, ghUser.getHtmlUrl().toString(), ghUser.getAvatarUrl(), prCommitNumber);
         Logger.trace("Created new contributor {} based on PR data", newContributor);
         loginToContributor.put(login, newContributor);
         contributors.add(newContributor);
@@ -466,7 +581,7 @@ public class gcl implements Callable<Integer> {
         emailToContributor.put(email, contributor);
     }
 
-    private Optional<Contributor> lookupContributorData(MVMap<String, Contributor> emailToContributor, GitHub gitHub, CoAuthor coAuthor) {
+    private Optional<Contributor> lookupContributorData(MVMap<String, Contributor> emailToContributor, GitHub gitHub, String prNumber, String commitName, CoAuthor coAuthor) {
         Logger.trace("Looking up {}", coAuthor);
         if (alreadyChecked.contains(coAuthor)) {
             Logger.trace("Already checked {}", coAuthor);
@@ -505,8 +620,8 @@ public class gcl implements Callable<Integer> {
         if (!ghLookup) {
             Logger.trace("Online lookup disabled. Using {} as fallback.", coAuthor.name);
             fallbacks.add(coAuthor.name);
-            fallbackSources.put(coAuthor.name, new PRAppearance(currentPR, currentSHA));
-            return Optional.of(new Contributor(coAuthor.name, "", ""));
+            fallbackSources.put(coAuthor.name, new PRAppearance(prNumber, commitName));
+            return Optional.of(new Contributor(coAuthor.name, "", "", commitName));
         }
         PagedSearchIterable<GHUser> list = gitHub.searchUsers().q(email).list();
         if (list.getTotalCount() == 1) {
@@ -516,7 +631,7 @@ public class gcl implements Callable<Integer> {
                 Logger.trace("Ignored because of login {}: {}", login, coAuthor);
                 return Optional.empty();
             }
-            Contributor newContributor = new Contributor(login, user.getHtmlUrl().toString(), user.getAvatarUrl());
+            Contributor newContributor = new Contributor(login, user.getHtmlUrl().toString(), user.getAvatarUrl(), commitName);
             emailToContributor.put(email, newContributor);
             return Optional.of(newContributor);
         }
@@ -571,8 +686,8 @@ public class gcl implements Callable<Integer> {
         if (user == null) {
             Logger.trace("No user found for {}. Using {} as fallback.", coAuthor, coAuthor.name);
             fallbacks.add(coAuthor.name);
-            fallbackSources.put(coAuthor.name, new PRAppearance(currentPR, currentSHA));
-            return Optional.of(new Contributor(coAuthor.name, "", ""));
+            fallbackSources.put(coAuthor.name, new PRAppearance(prNumber, commitName));
+            return Optional.of(new Contributor(coAuthor.name, "", "", commitName));
         }
 
         String login = user.getLogin();
@@ -593,7 +708,7 @@ public class gcl implements Callable<Integer> {
             name = usersLogin;
         }
 
-        Contributor newContributor = new Contributor(name, user.getHtmlUrl().toString(), user.getAvatarUrl());
+        Contributor newContributor = new Contributor(name, user.getHtmlUrl().toString(), user.getAvatarUrl(), commitName);
 
         Logger.trace("Found user {} for {}", newContributor, coAuthor);
 
