@@ -192,26 +192,25 @@ public class gcl implements Callable<Integer> {
             }
 
             DateTimeFormatter isoDateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE.withZone(ZoneId.systemDefault());
-            Logger.info("Analyzing {} days: From {} to {}",
+            Logger.info("Analyzing {} days backwards: From {} to {}",
                     repositoryData.days(),
-                    isoDateTimeFormatter.format(repositoryData.startDate()),
-                    isoDateTimeFormatter.format(repositoryData.endDate()));
+                    isoDateTimeFormatter.format(repositoryData.endDate()),
+                    isoDateTimeFormatter.format(repositoryData.startDate()));
 
             MVMap<String, Contributor> loginToContributor = store.openMap("loginToContributor");
             MVMap<String, Contributor> emailToContributor = store.openMap("emailToContributor");
 
             try (ProgressBar pb = new ProgressBar("Analyzing", (int) repositoryData.days());
                  RevWalk revWalk = new RevWalk(repository)) {
-                revWalk.sort(RevSort.REVERSE);
-                revWalk.markStart(repositoryData.startCommit());
+                revWalk.markStart(repositoryData.endCommit());
                 Iterator<RevCommit> commitIterator = revWalk.iterator();
 
                 while (commitIterator.hasNext()) {
                     RevCommit commit = commitIterator.next();
-                    analyzeCommit(pb, repositoryData.gitHub(), repositoryData.gitHubRepository(), loginToContributor, emailToContributor, repositoryData.startDate(), commit);
-                    if (commit.equals(repositoryData.endCommit())) {
+                    if (commit.equals(repositoryData.startCommit())) {
                         break;
                     }
+                    analyzeCommit(pb, repositoryData.gitHub(), repositoryData.gitHubRepository(), loginToContributor, emailToContributor, repositoryData.startDate(), commit);
                 }
             }
         }
