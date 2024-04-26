@@ -26,6 +26,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -367,9 +368,30 @@ public class gcl implements Callable<Integer> {
                 if (author == null) {
                     Logger.debug("GitHub did not provide author for {} ({})", commit.getName(), commit.getAuthorIdent().toExternalString());
                 } else {
-                    String login = author.getLogin();
-                    Contributor contributor = new Contributor(login, author.getHtmlUrl().toString(), author.getAvatarUrl(), commit.getName());
-                    emailToContributor.put(commit.getAuthorIdent().getEmailAddress(), contributor);
+                    String name = author.getName();
+                    if (name == null) {
+                        name = author.getLogin();
+                    }
+
+                    Contributor contributor = new Contributor(name, author.getHtmlUrl().toString(), author.getAvatarUrl(), commit.getName());
+
+                    boolean ignored = false;
+
+                    String email = author.getEmail();
+                    if (email != null && ignoredEmails.contains(email)) {
+                        Logger.trace("Ignored because of email: {}", contributor);
+                        ignored = true;
+                    }
+
+                    if (name != null && ignoredUsers.contains(name)) {
+                        Logger.trace("Ignored because of name: {}", contributor);
+                        ignored = true;
+                    }
+
+                    if (!ignored) {
+                        emailToContributor.put(commit.getAuthorIdent().getEmailAddress(), contributor);
+                        contributors.add(contributor);
+                    }
                 }
             } catch (IOException e) {
                 Logger.error("Could not get login information from commit {} from GitHub", commit.getName(), e);
@@ -440,7 +462,7 @@ public class gcl implements Callable<Integer> {
         String headingSeparator = "|" + " --  |".repeat(cols);
         System.out.println(headingSeparator);
 
-        StreamEx.ofSubLists(contributors.stream().toList(), cols)
+        StreamEx.ofSubLists(cleanUpContributors(contributors), cols)
                 .forEach(subList -> {
                     boolean isShorterList = subList.size() < cols;
 
@@ -463,6 +485,24 @@ public class gcl implements Callable<Integer> {
                                               .map(contributor -> String.format("%-" + maxLength + "s", getFormattedSecondLine(contributor)))
                                               .collect(Collectors.joining(" | ", "| ", " |")) + suffix);
                 });
+    }
+
+    private List<Contributor> cleanUpContributors(SortedSet<Contributor> contributors) {
+        LinkedHashMap<String, Contributor> urlToContributor = new LinkedHashMap<>();
+        contributors.forEach(contributor -> {
+            if (urlToContributor.containsKey(contributor.url())) {
+                Logger.trace("Duplicate URL found: {}", contributor.url());
+                Contributor existingContributor = urlToContributor.get(contributor.url());
+                if (!existingContributor.name().contains(" ")) {
+                    // Heuristics: Names without space are not real names (but rather login names)
+                    Logger.trace("Replacing {} with {}", existingContributor, contributor);
+                    urlToContributor.put(contributor.url(), contributor);
+                }
+            } else {
+                urlToContributor.put(contributor.url(), contributor);
+            }
+        });
+        return urlToContributor.values().stream().toList();
     }
 
     private static String getFormattedFirstLine(Contributor contributor) {
