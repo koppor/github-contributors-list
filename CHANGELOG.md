@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [2024-04-26]
 
+### Added
+
+- Improved handling of commits in mainline
+
 ### Fixed
 
 - Fixed handling of 404 pull requests. [#11](https://github.com/koppor/github-contributors-list/issues/11)

@@ -50,6 +50,7 @@ import org.eclipse.jgit.revwalk.RevSort;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.h2.mvstore.MVMap;
 import org.h2.mvstore.MVStore;
+import org.kohsuke.github.GHCommit;
 import org.kohsuke.github.GHFileNotFoundException;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHPullRequestCommitDetail;
@@ -197,6 +198,7 @@ public class gcl implements Callable<Integer> {
 
             Logger.info("Connecting to {}...", ownerRepository);
             GitHub gitHub = GitHub.connect();
+
             GHRepository gitHubRepository;
             try {
                 gitHubRepository = gitHub.getRepository(ownerRepository);
@@ -341,17 +343,39 @@ public class gcl implements Callable<Integer> {
         }
         if (prNumber == null) {
             Logger.trace("No PR number found in commit message");
-            addContributorFromRevCommit(commit, emailToContributor, gitHub);
+            addContributorFromRevCommit(commit, emailToContributor, gitHub, ghRepository);
         } else {
             if (!analyzePullRequest(progressBar, ghRepository, loginToContributor, emailToContributor, gitHub, prNumber, commit.getName())) {
                 Logger.trace("PR was 404. Interpreting commit itself");
-                addContributorFromRevCommit(commit, emailToContributor, gitHub);
+                addContributorFromRevCommit(commit, emailToContributor, gitHub, ghRepository);
             }
         }
     }
 
-    private void addContributorFromRevCommit(RevCommit commit, MVMap<String, Contributor> emailToContributor, GitHub gitHub) {
+    private void addContributorFromRevCommit(RevCommit commit, MVMap<String, Contributor> emailToContributor, GitHub gitHub, GHRepository ghRepository) {
         CoAuthor authorOfCommit = new CoAuthor(commit.getAuthorIdent().getName(), commit.getAuthorIdent().getEmailAddress());
+        GHCommit commit1 = null;
+        try {
+             commit1 = ghRepository.getCommit(commit.getName());
+        } catch (IOException e) {
+            Logger.error("Could not get commit {} from GitHub", commit.getName(), e);
+        }
+
+        if ((commit1 != null)) {
+            try {
+                GHUser author = commit1.getAuthor();
+                if (author == null) {
+                    Logger.debug("GitHub did not provide author for {} ({})", commit.getName(), commit.getAuthorIdent().toExternalString());
+                } else {
+                    String login = author.getLogin();
+                    Contributor contributor = new Contributor(login, author.getHtmlUrl().toString(), author.getAvatarUrl(), commit.getName());
+                    emailToContributor.put(commit.getAuthorIdent().getEmailAddress(), contributor);
+                }
+            } catch (IOException e) {
+                Logger.error("Could not get login information from commit {} from GitHub", commit.getName(), e);
+            }
+        }
+
         analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, NO_PR, commit.getName(), commit.getFullMessage());
     }
 
@@ -376,18 +400,22 @@ public class gcl implements Callable<Integer> {
         PagedIterator<GHPullRequestCommitDetail> ghCommitIterator = pullRequest.listCommits().iterator();
         while (ghCommitIterator.hasNext()) {
             GHPullRequestCommitDetail ghCommit = ghCommitIterator.next();
-            GHPullRequestCommitDetail.Commit theCommit = ghCommit.getCommit();
-
-            // GitHub's API does not set the real GitHub username, so following does not work
-            // This is very different from the information, which is available in GitHub's web interface
-            // storeContributorData(loginToContributor, gitHub, theCommit.getAuthor().getUsername());
-            // storeContributorData(loginToContributor, gitHub, theCommit.getCommitter().getUsername());
-
-            CoAuthor authorOfCommit = new CoAuthor(theCommit.getAuthor().getName(), theCommit.getAuthor().getEmail());
-            analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, number, ghCommit.getSha(), theCommit.getMessage());
+            analyzeGhCommit(emailToContributor, gitHub, number, ghCommit);
         }
 
         return true;
+    }
+
+    private void analyzeGhCommit(MVMap<String, Contributor> emailToContributor, GitHub gitHub, String number, GHPullRequestCommitDetail ghCommit) {
+        GHPullRequestCommitDetail.Commit theCommit = ghCommit.getCommit();
+
+        // GitHub's API does not set the real GitHub username, so following does not work
+        // This is very different from the information, which is available in GitHub's web interface
+        // storeContributorData(loginToContributor, gitHub, theCommit.getAuthor().getUsername());
+        // storeContributorData(loginToContributor, gitHub, theCommit.getCommitter().getUsername());
+
+        CoAuthor authorOfCommit = new CoAuthor(theCommit.getAuthor().getName(), theCommit.getAuthor().getEmail());
+        analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, number, ghCommit.getSha(), theCommit.getMessage());
     }
 
     private void analyzeRegularCommit(CoAuthor authorOfCommit, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String prNumber, String commitName, String commitMessage) {
