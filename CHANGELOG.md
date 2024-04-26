@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2024-04-26]
+
+### Fixed
+
+- Fixed handling of 404 pull requests. [#11](https://github.com/koppor/github-contributors-list/issues/11)
+- Fixed progressbar going backwards when using defaults.
+
 ## [2024-04-25]
 
 ### Added
@@ -14,11 +21,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Can now run without any parameters: The current directory is used as the repository path.
 - Use `--repository owner/repo` instead of `--owner` and `--repo`.
-- The defaults for `--startrevision` and `--endrevision` are now the complete branch history (starting from `HEAD`).
+- The defaults for `--startrevision` and `--endrevision` are now the complete branch history (starting from `HEAD`). [#3](https://github.com/koppor/github-contributors-list/issues/3)
 
 ### Fixed
 
-- Commits without any pull request number are also analyzed.
+- Commits without any pull request number are also analyzed. [#4](https://github.com/koppor/github-contributors-list/issues/4)
 - Fixed typo in parameter `--login-mapping`.
 - Handling of ignored users.
 
@@ -30,5 +37,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Initial release.
 
+[2024-04-26]: https://github.com/koppor/github-contributors-list/compare/2024-04-25...2024-04-26
 [2024-04-25]: https://github.com/koppor/github-contributors-list/compare/2024-04-09...2024-04-25
 [2024-04-09]: https://github.com/koppor/github-contributors-list/releases/tag/2024-04-09

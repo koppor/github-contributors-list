@@ -21,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -40,8 +41,10 @@ import me.tongfei.progressbar.ProgressBar;
 import one.util.streamex.StreamEx;
 import org.eclipse.collections.api.multimap.MutableMultimap;
 import org.eclipse.collections.impl.factory.Multimaps;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.revwalk.RevSort;
+import org.kohsuke.github.GHFileNotFoundException;
 import org.tinylog.Logger;
 
 import org.eclipse.jgit.api.Git;
@@ -236,8 +239,20 @@ public class gcl implements Callable<Integer> {
             Instant startDate = startCommit.getAuthorIdent().getWhen().toInstant();
             Instant endDate = endCommit.getAuthorIdent().getWhen().toInstant();
 
+            if (startDate.isAfter(endDate)) {
+                Logger.warn("Start date is after end date. Swapping.");
+                // Swap start and end date
+                Instant tmp = endDate;
+                endDate = startDate;
+                startDate = tmp;
+            }
+
             long days = Duration.between(startDate, endDate).toDays();
-            Logger.info("Analyzing {} days backwards: From {} to {}", days, DateTimeFormatter.ISO_INSTANT.format(endDate), DateTimeFormatter.ISO_INSTANT.format(startDate));
+            DateTimeFormatter isoDateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE.withZone(ZoneId.systemDefault());
+            Logger.info("Analyzing {} days backwards: From {} to {}",
+                    days,
+                    isoDateTimeFormatter.format(startDate),
+                    isoDateTimeFormatter.format(endDate));
 
             try (ProgressBar pb = new ProgressBar("Analyzing", (int) days)) {
                 pb.maxHint((int) days);
@@ -291,9 +306,9 @@ public class gcl implements Callable<Integer> {
      * Analyzes a commit found in the repository. Will then diverge to the pull request analysis if a PR number is found in the commit message. Otherwise, the commit is analyzed as a regular commit.
      */
     private void analyzeCommit(long days, Instant startDate, RevCommit commit, ProgressBar progressBar, GHRepository ghRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub) throws IOException {
-        long daysSinceLast = days - Duration.between(startDate, commit.getAuthorIdent().getWhen().toInstant()).toDays();
-        Logger.trace("{} daysSinceLast", daysSinceLast);
-        progressBar.stepTo((int) daysSinceLast);
+        long daysSinceFirstCommit = Duration.between(startDate, commit.getAuthorIdent().getWhen().toInstant()).toDays();
+        Logger.trace("{} daysSinceFirstCommit", daysSinceFirstCommit);
+        progressBar.stepTo((int) daysSinceFirstCommit);
 
         String shortMessage = commit.getShortMessage();
         Logger.trace("Checking commit \"{}\" ({})", shortMessage, commit.getId().name());
@@ -311,19 +326,35 @@ public class gcl implements Callable<Integer> {
         }
         if (number == null) {
             Logger.trace("No PR number found in commit message");
-            CoAuthor authorOfCommit = new CoAuthor(commit.getAuthorIdent().getName(), commit.getAuthorIdent().getEmailAddress());
-            analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, commit.getFullMessage());
+            addContributorFromRevCommit(commit, emailToContributor, gitHub);
         } else {
-            analyzePullRequest(progressBar, ghRepository, loginToContributor, emailToContributor, gitHub, number);
+            if (!analyzePullRequest(progressBar, ghRepository, loginToContributor, emailToContributor, gitHub, number)) {
+                Logger.trace("PR was 404. Interpreting commit itself");
+                addContributorFromRevCommit(commit, emailToContributor, gitHub);
+            }
         }
     }
 
-    private void analyzePullRequest(ProgressBar progressBar, GHRepository ghRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String number) throws IOException {
+    private void addContributorFromRevCommit(RevCommit commit, MVMap<String, Contributor> emailToContributor, GitHub gitHub) {
+        CoAuthor authorOfCommit = new CoAuthor(commit.getAuthorIdent().getName(), commit.getAuthorIdent().getEmailAddress());
+        analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, commit.getFullMessage());
+    }
+
+    /**
+     * @return false if the PR did not exist
+     */
+    private boolean analyzePullRequest(ProgressBar progressBar, GHRepository ghRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String number) throws IOException {
         Logger.trace("Investigating PR #{}", number);
         this.currentPR = number;
         progressBar.setExtraMessage("PR " + number);
         int prNumber = Integer.parseInt(number);
-        GHPullRequest pullRequest = ghRepository.getPullRequest(prNumber);
+        GHPullRequest pullRequest;
+        try {
+            pullRequest = ghRepository.getPullRequest(prNumber);
+        } catch (GHFileNotFoundException e) {
+            Logger.warn("Pull request {} not found", prNumber);
+            return false;
+        }
         GHUser user = pullRequest.getUser();
         storeContributorData(loginToContributor, emailToContributor, user);
 
@@ -342,6 +373,8 @@ public class gcl implements Callable<Integer> {
             CoAuthor authorOfCommit = new CoAuthor(theCommit.getAuthor().getName(), theCommit.getAuthor().getEmail());
             analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, theCommit.getMessage());
         }
+
+        return true;
     }
 
     private void analyzeRegularCommit(CoAuthor authorOfCommit, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String commitMessage) {
