@@ -184,88 +184,34 @@ public class gcl implements Callable<Integer> {
                 fileName("gcl.mv").
                 open();
             Git git = Git.open(repositoryPath.toFile());
-            Repository repository = git.getRepository(); RevWalk revWalk = new RevWalk(repository)) {
+            Repository repository = git.getRepository()) {
 
-            String remoteOriginUrl = "n/a";
-            if (!hasRepository) {
-                // Source: https://stackoverflow.com/a/38062680/873282
-                remoteOriginUrl = git.getRepository().getConfig().getString("remote", "origin", "url");
-                if (remoteOriginUrl.startsWith("git@")) {
-                    ownerRepository = remoteOriginUrl.substring(remoteOriginUrl.indexOf(':') + 1, remoteOriginUrl.lastIndexOf('.'));
-                } else {
-                    ownerRepository = remoteOriginUrl.substring(remoteOriginUrl.indexOf("github.com/") + "github.com/".length());
-                    if (ownerRepository.endsWith(".git")) {
-                        ownerRepository = ownerRepository.substring(0, ownerRepository.length() - ".git".length());
-                    }
-                }
-            }
-
-            Logger.info("Connecting to {}...", ownerRepository);
-            GitHub gitHub = GitHub.connect();
-            GHRepository gitHubRepository;
-            try {
-                gitHubRepository = gitHub.getRepository(ownerRepository);
-            } catch (IllegalArgumentException e) {
-                Logger.error("Error in repository reference {}", ownerRepository);
-                if (!hasRepository) {
-                    Logger.error("It was automatically derived from {}", remoteOriginUrl);
-                }
+            RepositoryData repositoryData = getRepositoryData(git, store, repository);
+            if (repositoryData == null) {
                 return 1;
             }
 
-            MVMap<String, Contributor> emailToContributor = store.openMap("emailToContributor");
-            MVMap<String, Contributor> loginToContributor = store.openMap("loginToContributor");
-
-            RevCommit startCommit;
-            if (hasStartRevision) {
-                startCommit = revWalk.parseCommit(repository.resolve(startCommitRevStr));
-            } else {
-                RevCommit root = revWalk.parseCommit(repository.resolve(Constants.HEAD));
-                revWalk.sort(RevSort.REVERSE);
-                revWalk.markStart(root);
-                startCommit = revWalk.next();
-                Logger.trace("No explicit start commit, using {}", startCommit.getId().name());
-            }
-
-            RevCommit endCommit;
-            if (hasEndRevision) {
-                endCommit = revWalk.parseCommit(repository.resolve(endCommitRevStr));
-            } else {
-                // Hint by https://stackoverflow.com/a/59274329/873282
-                endCommit = git.log().setMaxCount(1).call().iterator().next();
-                Logger.trace("No explicit end commit, using {}", endCommit.getId().name());
-            }
-
-            Instant startDate = startCommit.getAuthorIdent().getWhen().toInstant();
-            Instant endDate = endCommit.getAuthorIdent().getWhen().toInstant();
-
-            if (startDate.isAfter(endDate)) {
-                Logger.warn("Start date is after end date. Swapping.");
-                // Swap start and end date
-                Instant tmp = endDate;
-                endDate = startDate;
-                startDate = tmp;
-            }
-
-            long days = Duration.between(startDate, endDate).toDays();
             DateTimeFormatter isoDateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE.withZone(ZoneId.systemDefault());
-            Logger.info("Analyzing {} days backwards: From {} to {}",
-                    days,
-                    isoDateTimeFormatter.format(startDate),
-                    isoDateTimeFormatter.format(endDate));
+            Logger.info("Analyzing {} days: From {} to {}",
+                    repositoryData.days(),
+                    isoDateTimeFormatter.format(repositoryData.startDate()),
+                    isoDateTimeFormatter.format(repositoryData.endDate()));
 
-            try (ProgressBar pb = new ProgressBar("Analyzing", (int) days)) {
-                pb.maxHint((int) days);
+            MVMap<String, Contributor> loginToContributor = store.openMap("loginToContributor");
+            MVMap<String, Contributor> emailToContributor = store.openMap("emailToContributor");
 
-                revWalk.markStart(endCommit);
+            try (ProgressBar pb = new ProgressBar("Analyzing", (int) repositoryData.days());
+                 RevWalk revWalk = new RevWalk(repository)) {
+                revWalk.sort(RevSort.REVERSE);
+                revWalk.markStart(repositoryData.startCommit());
                 Iterator<RevCommit> commitIterator = revWalk.iterator();
 
                 while (commitIterator.hasNext()) {
                     RevCommit commit = commitIterator.next();
-                    if (commit.equals(startCommit)) {
+                    analyzeCommit(pb, repositoryData.gitHub(), repositoryData.gitHubRepository(), loginToContributor, emailToContributor, repositoryData.startDate(), commit);
+                    if (commit.equals(repositoryData.endCommit())) {
                         break;
                     }
-                    analyzeCommit(days, startDate, commit, pb, gitHubRepository, loginToContributor, emailToContributor, gitHub);
                 }
             }
         }
@@ -283,6 +229,76 @@ public class gcl implements Callable<Integer> {
         printMarkdownSnippet();
 
         return 0;
+    }
+
+    private RepositoryData getRepositoryData(Git git, MVStore store, Repository repository) throws IOException, GitAPIException {
+        String remoteOriginUrl = "n/a";
+        if (!hasRepository) {
+            // Source: https://stackoverflow.com/a/38062680/873282
+            remoteOriginUrl = git.getRepository().getConfig().getString("remote", "origin", "url");
+            if (remoteOriginUrl.startsWith("git@")) {
+                ownerRepository = remoteOriginUrl.substring(remoteOriginUrl.indexOf(':') + 1, remoteOriginUrl.lastIndexOf('.'));
+            } else {
+                ownerRepository = remoteOriginUrl.substring(remoteOriginUrl.indexOf("github.com/") + "github.com/".length());
+                if (ownerRepository.endsWith(".git")) {
+                    ownerRepository = ownerRepository.substring(0, ownerRepository.length() - ".git".length());
+                }
+            }
+        }
+
+        Logger.info("Connecting to {}...", ownerRepository);
+        GitHub gitHub = GitHub.connect();
+        GHRepository gitHubRepository;
+        try {
+            gitHubRepository = gitHub.getRepository(ownerRepository);
+        } catch (IllegalArgumentException e) {
+            Logger.error("Error in repository reference {}", ownerRepository);
+            if (!hasRepository) {
+                Logger.error("It was automatically derived from {}", remoteOriginUrl);
+            }
+            return null;
+        }
+
+        RevCommit startCommit;
+        RevCommit endCommit;
+        try (RevWalk revWalk = new RevWalk(repository)) {
+            if (hasStartRevision) {
+                startCommit = revWalk.parseCommit(repository.resolve(startCommitRevStr));
+            } else {
+                RevCommit root = revWalk.parseCommit(repository.resolve(Constants.HEAD));
+                revWalk.sort(RevSort.REVERSE);
+                revWalk.markStart(root);
+                startCommit = revWalk.next();
+                Logger.trace("No explicit start commit, using {}", startCommit.getId().name());
+            }
+
+            if (hasEndRevision) {
+                endCommit = revWalk.parseCommit(repository.resolve(endCommitRevStr));
+            } else {
+                // Hint by https://stackoverflow.com/a/59274329/873282
+                endCommit = git.log().setMaxCount(1).call().iterator().next();
+                Logger.trace("No explicit end commit, using {}", endCommit.getId().name());
+            }
+
+        }
+
+        Instant startDate = startCommit.getAuthorIdent().getWhen().toInstant();
+        Instant endDate = endCommit.getAuthorIdent().getWhen().toInstant();
+
+        if (startDate.isAfter(endDate)) {
+            Logger.warn("Start date is after end date. Swapping.");
+            // Swap start and end date
+            Instant tmp = endDate;
+            endDate = startDate;
+            startDate = tmp;
+        }
+
+        long days = Duration.between(startDate, endDate).toDays();
+
+        return new RepositoryData(gitHub, gitHubRepository, startCommit, startDate, endCommit, endDate, days);
+    }
+
+    private record RepositoryData(GitHub gitHub, GHRepository gitHubRepository, RevCommit startCommit, Instant startDate, RevCommit endCommit, Instant endDate, long days) {
     }
 
     private void outputFallbacks() {
@@ -305,10 +321,11 @@ public class gcl implements Callable<Integer> {
     /**
      * Analyzes a commit found in the repository. Will then diverge to the pull request analysis if a PR number is found in the commit message. Otherwise, the commit is analyzed as a regular commit.
      */
-    private void analyzeCommit(long days, Instant startDate, RevCommit commit, ProgressBar progressBar, GHRepository ghRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub) throws IOException {
+    private void analyzeCommit(ProgressBar progressBar, GitHub gitHub, GHRepository ghRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, Instant startDate, RevCommit commit) throws IOException {
         long daysSinceFirstCommit = Duration.between(startDate, commit.getAuthorIdent().getWhen().toInstant()).toDays();
         Logger.trace("{} daysSinceFirstCommit", daysSinceFirstCommit);
-        progressBar.stepTo((int) daysSinceFirstCommit);
+
+        progressBar.stepTo(Math.max((int) daysSinceFirstCommit, progressBar.getCurrent()));
 
         String shortMessage = commit.getShortMessage();
         Logger.trace("Checking commit \"{}\" ({})", shortMessage, commit.getId().name());
