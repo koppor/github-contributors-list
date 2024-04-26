@@ -94,6 +94,7 @@ public class gcl implements Callable<Integer> {
 
     @Option(names = "--filter")
     private List<String> ignoredUsers = List.of(
+            "allcontributors[bot]",
             "dependabot[bot]",
             "dependabot",
             "apps/dependabot",
@@ -126,7 +127,7 @@ public class gcl implements Callable<Integer> {
 
     private static final String githubUsersEmailSuffix = "@users.noreply.github.com";
 
-    private record Contributor(String name, String url, String avatarUrl) implements Serializable {
+    private record Contributor(String name, String url, String avatarUrl, String commitName) implements Serializable {
         public String getUserId() {
             // Example: https://github.com/LoayGhreeb, then userId is LoeyGhreeb
             return url.substring(url.lastIndexOf('/') + 1);
@@ -324,21 +325,21 @@ public class gcl implements Callable<Integer> {
         Logger.trace("Checking commit \"{}\" ({})", shortMessage, commit.getId().name());
 
         Matcher matcher = numberAtEnd.matcher(shortMessage);
-        String number = null;
+        String prNumber = null;
         if (matcher.matches()) {
-            number = matcher.group(1);
+            prNumber = matcher.group(1);
         }
-        if (number == null) {
+        if (prNumber == null) {
             matcher = mergeCommit.matcher(shortMessage);
             if (matcher.matches()) {
-                number = matcher.group(1);
+                prNumber = matcher.group(1);
             }
         }
-        if (number == null) {
+        if (prNumber == null) {
             Logger.trace("No PR number found in commit message");
             addContributorFromRevCommit(commit, emailToContributor, gitHub);
         } else {
-            if (!analyzePullRequest(progressBar, ghRepository, loginToContributor, emailToContributor, gitHub, number, commit.getName())) {
+            if (!analyzePullRequest(progressBar, ghRepository, loginToContributor, emailToContributor, gitHub, prNumber, commit.getName())) {
                 Logger.trace("PR was 404. Interpreting commit itself");
                 addContributorFromRevCommit(commit, emailToContributor, gitHub);
             }
@@ -347,10 +348,11 @@ public class gcl implements Callable<Integer> {
 
     private void addContributorFromRevCommit(RevCommit commit, MVMap<String, Contributor> emailToContributor, GitHub gitHub) {
         CoAuthor authorOfCommit = new CoAuthor(commit.getAuthorIdent().getName(), commit.getAuthorIdent().getEmailAddress());
-        analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, commit.getFullMessage());
+        analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, commit.getName(), commit.getFullMessage());
     }
 
     /**
+     * @param number the PR number
      * @return false if the PR did not exist
      */
     private boolean analyzePullRequest(ProgressBar progressBar, GHRepository ghRepository, MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String number, String prCommitNumber) throws IOException {
@@ -362,11 +364,11 @@ public class gcl implements Callable<Integer> {
         try {
             pullRequest = ghRepository.getPullRequest(prNumber);
         } catch (GHFileNotFoundException e) {
-            Logger.warn("Pull request {} not found. Referenced from commit {}.", prNumber, prCommitNumber);
+            Logger.warn("Pull request #{} not found. Referenced from commit {}.", prNumber, prCommitNumber);
             return false;
         }
         GHUser user = pullRequest.getUser();
-        storeContributorData(loginToContributor, emailToContributor, user);
+        storeContributorData(loginToContributor, emailToContributor, user, prCommitNumber);
 
         PagedIterator<GHPullRequestCommitDetail> ghCommitIterator = pullRequest.listCommits().iterator();
         while (ghCommitIterator.hasNext()) {
@@ -381,14 +383,14 @@ public class gcl implements Callable<Integer> {
             // storeContributorData(loginToContributor, gitHub, theCommit.getCommitter().getUsername());
 
             CoAuthor authorOfCommit = new CoAuthor(theCommit.getAuthor().getName(), theCommit.getAuthor().getEmail());
-            analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, theCommit.getMessage());
+            analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, ghCommit.getSha(), theCommit.getMessage());
         }
 
         return true;
     }
 
-    private void analyzeRegularCommit(CoAuthor authorOfCommit, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String commitMessage) {
-        Optional<Contributor> contributor = lookupContributorData(emailToContributor, gitHub, authorOfCommit);
+    private void analyzeRegularCommit(CoAuthor authorOfCommit, MVMap<String, Contributor> emailToContributor, GitHub gitHub, String commitName, String commitMessage) {
+        Optional<Contributor> contributor = lookupContributorData(emailToContributor, gitHub, commitName, authorOfCommit);
         // In case an author is ignored, the Optional is empty
         contributor.ifPresent(contributors::add);
 
@@ -396,7 +398,7 @@ public class gcl implements Callable<Integer> {
         commitMessage.lines()
                      .filter(line -> line.startsWith("Co-authored-by:"))
                      .map(CoAuthor::new)
-                     .map(coAuthor -> lookupContributorData(emailToContributor, gitHub, coAuthor))
+                     .map(coAuthor -> lookupContributorData(emailToContributor, gitHub, commitName, coAuthor))
                      .filter(Optional::isPresent)
                      .map(Optional::get)
                      .forEach(contributors::add);
@@ -453,17 +455,18 @@ public class gcl implements Callable<Integer> {
     /**
      * Derives the contributor based on given ghUser and adds it to the loginToContributor and emailToContributor maps as well as to the contributors set.
      */
-    private void storeContributorData(MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GHUser ghUser) {
+    private void storeContributorData(MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GHUser ghUser, String prCommitNumber) {
         Logger.trace("Handling {}", ghUser);
         String login = ghUser.getLogin();
+
+        if (ignoredUsers.contains(login)) {
+            Logger.trace("Ignored because of login {}", login);
+            return;
+        }
 
         Contributor contributor = loginToContributor.get(login);
         Logger.trace("Found contributor {}", contributor);
         if (contributor != null) {
-            if (ignoredUsers.contains(login)) {
-                Logger.trace("Ignored because of login {}", login);
-                return;
-            }
             contributors.add(contributor);
             putIntoEmailToContributorMap(emailToContributor, ghUser, contributor);
             return;
@@ -485,7 +488,7 @@ public class gcl implements Callable<Integer> {
             return;
         }
 
-        Contributor newContributor = new Contributor(name, ghUser.getHtmlUrl().toString(), ghUser.getAvatarUrl());
+        Contributor newContributor = new Contributor(name, ghUser.getHtmlUrl().toString(), ghUser.getAvatarUrl(), prCommitNumber);
         Logger.trace("Created new contributor {} based on PR data", newContributor);
         loginToContributor.put(login, newContributor);
         contributors.add(newContributor);
@@ -509,7 +512,7 @@ public class gcl implements Callable<Integer> {
         emailToContributor.put(email, contributor);
     }
 
-    private Optional<Contributor> lookupContributorData(MVMap<String, Contributor> emailToContributor, GitHub gitHub, CoAuthor coAuthor) {
+    private Optional<Contributor> lookupContributorData(MVMap<String, Contributor> emailToContributor, GitHub gitHub, String commitName, CoAuthor coAuthor) {
         Logger.trace("Looking up {}", coAuthor);
         if (alreadyChecked.contains(coAuthor)) {
             Logger.trace("Already checked {}", coAuthor);
@@ -549,7 +552,7 @@ public class gcl implements Callable<Integer> {
             Logger.trace("Online lookup disabled. Using {} as fallback.", coAuthor.name);
             fallbacks.add(coAuthor.name);
             fallbackSources.put(coAuthor.name, new PRAppearance(currentPR, currentSHA));
-            return Optional.of(new Contributor(coAuthor.name, "", ""));
+            return Optional.of(new Contributor(coAuthor.name, "", "", currentSHA));
         }
         PagedSearchIterable<GHUser> list = gitHub.searchUsers().q(email).list();
         if (list.getTotalCount() == 1) {
@@ -559,7 +562,7 @@ public class gcl implements Callable<Integer> {
                 Logger.trace("Ignored because of login {}: {}", login, coAuthor);
                 return Optional.empty();
             }
-            Contributor newContributor = new Contributor(login, user.getHtmlUrl().toString(), user.getAvatarUrl());
+            Contributor newContributor = new Contributor(login, user.getHtmlUrl().toString(), user.getAvatarUrl(), commitName);
             emailToContributor.put(email, newContributor);
             return Optional.of(newContributor);
         }
@@ -615,7 +618,7 @@ public class gcl implements Callable<Integer> {
             Logger.trace("No user found for {}. Using {} as fallback.", coAuthor, coAuthor.name);
             fallbacks.add(coAuthor.name);
             fallbackSources.put(coAuthor.name, new PRAppearance(currentPR, currentSHA));
-            return Optional.of(new Contributor(coAuthor.name, "", ""));
+            return Optional.of(new Contributor(coAuthor.name, "", "", currentSHA));
         }
 
         String login = user.getLogin();
@@ -636,7 +639,7 @@ public class gcl implements Callable<Integer> {
             name = usersLogin;
         }
 
-        Contributor newContributor = new Contributor(name, user.getHtmlUrl().toString(), user.getAvatarUrl());
+        Contributor newContributor = new Contributor(name, user.getHtmlUrl().toString(), user.getAvatarUrl(), commitName);
 
         Logger.trace("Found user {} for {}", newContributor, coAuthor);
 

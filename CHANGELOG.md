@@ -11,6 +11,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fixed handling of 404 pull requests. [#11](https://github.com/koppor/github-contributors-list/issues/11)
 - Fixed progressbar going backwards when using defaults.
 
+### Changed
+
+- Handling of logins during ignoring users.
+
 ## [2024-04-25]
 
 ### Added
