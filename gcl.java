@@ -281,8 +281,8 @@ public class gcl implements Callable<Integer> {
             DateTimeFormatter isoDateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE.withZone(ZoneId.systemDefault());
             Logger.info("Analyzing {} days: From {} to {}",
                     days,
-                    isoDateTimeFormatter.format(endDate),
-                    isoDateTimeFormatter.format(startDate));
+                    isoDateTimeFormatter.format(startDate),
+                    isoDateTimeFormatter.format(endDate));
 
         }
 
