@@ -48,3 +48,5 @@ Initial release.
 [2024-04-26]: https://github.com/koppor/github-contributors-list/compare/2024-04-25...2024-04-26
 [2024-04-25]: https://github.com/koppor/github-contributors-list/compare/2024-04-09...2024-04-25
 [2024-04-09]: https://github.com/koppor/github-contributors-list/releases/tag/2024-04-09
+
+<!-- markdownlint-disable-file MD024 -->
