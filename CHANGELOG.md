@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2024-07-15]
+
+### Fixed
+
+- Fixed a null pointer exception when running. [#22](https://github.com/koppor/github-contributors-list/issues/22)
+- Fixed ignoring of users when logins are used in the filter and the commit was on the main branch.
+- Fixed parsing of multiple ignored users.
+
 ## [2024-04-26]
 
 ### Added
@@ -45,6 +53,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Initial release.
 
+[2024-07-15]: https://github.com/koppor/github-contributors-list/compare/2024-04-26...2024-07-15
 [2024-04-26]: https://github.com/koppor/github-contributors-list/compare/2024-04-25...2024-04-26
 [2024-04-25]: https://github.com/koppor/github-contributors-list/compare/2024-04-09...2024-04-25
 [2024-04-09]: https://github.com/koppor/github-contributors-list/releases/tag/2024-04-09

@@ -8,6 +8,7 @@
 //DEPS info.picocli:picocli:4.7.6
 //DEPS one.util:streamex:0.8.2
 //DEPS me.tongfei:progressbar:0.10.1
+//DEPS org.jline:jline-terminal:3.26.2
 //DEPS org.eclipse.collections:eclipse-collections:11.1.0
 
 //DEPS org.tinylog:tinylog-api:2.7.0
@@ -89,13 +90,13 @@ public class gcl implements Callable<Integer> {
     @Option(names = "--endrevision", description = "The last revision to check (tag or commit id). Included.")
     private String endCommitRevStr;
 
-    @Option(names = "--repository", description = "The GitHub repository in the form owner/repostiory. E.g., JabRef/jabref")
+    @Option(names = "--repository", description = "The GitHub repository in the form owner/repository. E.g., JabRef/jabref")
     private String ownerRepository;
 
     @Option(names = "--cols", description = "Number of columns")
     private Integer cols = 6;
 
-    @Option(names = "--filter")
+    @Option(names = "--filter", split = ",")
     private List<String> ignoredUsers = List.of(
             "allcontributors[bot]",
             "dependabot[bot]",
@@ -105,7 +106,7 @@ public class gcl implements Callable<Integer> {
             "renovate[bot]",
             "renovate-bot");
 
-    @Option(names = "--filter-emails")
+    @Option(names = "--filter-emails", split = ",")
     private List<String> ignoredEmails = List.of(
             "49699333+dependabot[bot]@users.noreply.github.com",
             "bot@renovateapp.com",
@@ -388,9 +389,14 @@ public class gcl implements Callable<Integer> {
                         ignored = true;
                     }
 
+                    if (author.getLogin() != null && ignoredUsers.contains(author.getLogin())) {
+                        Logger.trace("Ignored because of login: {}", contributor);
+                        ignored = true;
+                    }
+
                     if (!ignored) {
                         emailToContributor.put(commit.getAuthorIdent().getEmailAddress(), contributor);
-                        contributors.add(contributor);
+                        addContributor(contributor);
                     }
                 }
             } catch (IOException e) {
@@ -399,6 +405,14 @@ public class gcl implements Callable<Integer> {
         }
 
         analyzeRegularCommit(authorOfCommit, emailToContributor, gitHub, NO_PR, commit.getName(), commit.getFullMessage());
+    }
+
+    /**
+     * @implNote Separate method to allow for easier debugging for addition of contributors
+     */
+    private boolean addContributor(Contributor contributor) {
+        Logger.trace("Adding {} to {]", contributor, contributors);
+        return contributors.add(contributor);
     }
 
     /**
@@ -455,6 +469,9 @@ public class gcl implements Callable<Integer> {
                      .forEach(contributors::add);
     }
 
+    /**
+     * Converts contributors to a markdown table.
+     */
     private void printMarkdownSnippet() {
         String heading = "|" + "  |".repeat(cols);
         System.out.println(heading);
@@ -527,16 +544,19 @@ public class gcl implements Callable<Integer> {
     private void storeContributorData(MVMap<String, Contributor> loginToContributor, MVMap<String, Contributor> emailToContributor, GHUser ghUser, String prCommitNumber) {
         Logger.trace("Handling {}", ghUser);
         String login = ghUser.getLogin();
+        Logger.trace("Login: {}", login);
 
         if (ignoredUsers.contains(login)) {
             Logger.trace("Ignored because of login {}", login);
             return;
+        } else {
+            Logger.trace("Not ignored because of login {}", login);
         }
 
         Contributor contributor = loginToContributor.get(login);
         Logger.trace("Found contributor {}", contributor);
         if (contributor != null) {
-            contributors.add(contributor);
+            addContributor(contributor);
             putIntoEmailToContributorMap(emailToContributor, ghUser, contributor);
             return;
         }
@@ -560,7 +580,7 @@ public class gcl implements Callable<Integer> {
         Contributor newContributor = new Contributor(name, ghUser.getHtmlUrl().toString(), ghUser.getAvatarUrl(), prCommitNumber);
         Logger.trace("Created new contributor {} based on PR data", newContributor);
         loginToContributor.put(login, newContributor);
-        contributors.add(newContributor);
+        addContributor(newContributor);
 
         putIntoEmailToContributorMap(emailToContributor, ghUser, newContributor);
     }
@@ -581,6 +601,12 @@ public class gcl implements Callable<Integer> {
         emailToContributor.put(email, contributor);
     }
 
+    /**
+     * Looks up the contributor data for the given co-author. If the co-author is already in the contributors set, the lookup is skipped.
+     * If the co-author is in the ignoredUsers or ignoredEmails lists, the lookup is skipped and an empty Optional is returned.
+     *
+     * @return an Optional with the contributor data if the lookup was successful, otherwise an empty Optional.
+     */
     private Optional<Contributor> lookupContributorData(MVMap<String, Contributor> emailToContributor, GitHub gitHub, String prNumber, String commitName, CoAuthor coAuthor) {
         Logger.trace("Looking up {}", coAuthor);
         if (alreadyChecked.contains(coAuthor)) {

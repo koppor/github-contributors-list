@@ -52,6 +52,12 @@ Usage: jbang gcl@koppor/github-contributors-list [-lhV] [--startrevision=<startC
   -V, --version              Print version information and exit.
 ```
 
+Example:
+
+```terminal
+Usage: jbang gcl@koppor/github-contributors-list --repository JabRef/jabref c:\git-repositories\jabref --startrevision=v5.13 --endrevision=v5.15
+```
+
 At the end, non-found committers are listed.
 The format is `<used name> <PR link> <commit link>`.
 Example:
@@ -69,6 +75,10 @@ Thus, repeated runs could update contributor information.
 For instance, if a user first appears as "Co-authored-by:" and later as a pull request author, the username could be determined better.
 
 In case of issues, try to delete `gcl.mv` to start with a fresh cache.
+
+## FAQ
+
+⚠ In case contributors are not ignored, please delete `gcl.mv` and try again. ⚠
 
 ## Implementation details
 
