@@ -8,7 +8,7 @@
 //DEPS info.picocli:picocli:4.7.6
 //DEPS one.util:streamex:0.8.3
 //DEPS me.tongfei:progressbar:0.10.1
-//DEPS org.jline:jline-terminal:3.27.0
+//DEPS org.jline:jline-terminal:3.27.1
 //DEPS org.eclipse.collections:eclipse-collections:11.1.0
 
 //DEPS org.tinylog:tinylog-api:2.7.0
