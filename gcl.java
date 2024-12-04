@@ -3,7 +3,7 @@
 //JAVA 21+
 
 //DEPS com.h2database:h2-mvstore:2.3.232
-//DEPS org.eclipse.jgit:org.eclipse.jgit:7.0.0.202409031743-r
+//DEPS org.eclipse.jgit:org.eclipse.jgit:7.1.0.202411261347-r
 //DEPS org.kohsuke:github-api:1.326
 //DEPS info.picocli:picocli:4.7.6
 //DEPS one.util:streamex:0.8.3
