@@ -488,7 +488,6 @@ public class gcl implements Callable<Integer> {
                     List<String> elements = subList.stream()
                                                    .map(contributor -> getFormattedFirstLineEntry(contributor))
                                                    .toList();
-                    Integer maxLength = elements.stream().map(String::length).max(Integer::compareTo).get();
 
                     String suffix = "";
                     if (isShorterList) {
@@ -500,7 +499,7 @@ public class gcl implements Callable<Integer> {
 
                     // second line
                     System.out.println(subList.stream()
-                                              .map(contributor -> String.format("%-" + maxLength + "s", getFormattedSecondLineEntry(contributor)))
+                                              .map(contributor -> getFormattedSecondLineEntry(contributor))
                                               .collect(Collectors.joining(" | ", "| ", " |")) + suffix);
                 });
     }
@@ -528,7 +527,7 @@ public class gcl implements Callable<Integer> {
             return contributor.name();
         }
         return """
-                [<img alt="%s" src="%s&w=%4$s" width="%4$s">](%3$s)""".formatted(contributor.name(), contributor.avatarUrl(), contributor.url(), avatarImgWidth);
+               [<img alt="%s" src="%s&w=%4$s" width="%4$s">](%3$s)""".formatted(contributor.name(), contributor.avatarUrl(), contributor.url(), avatarImgWidth);
     }
 
     private static String getFormattedSecondLineEntry(Contributor contributor) {
@@ -536,7 +535,7 @@ public class gcl implements Callable<Integer> {
             return "";
         }
         return """
-                [%s](%s)""".formatted(contributor.name(), contributor.url());
+               [%s](%s)""".formatted(contributor.name(), contributor.url());
     }
 
     /**

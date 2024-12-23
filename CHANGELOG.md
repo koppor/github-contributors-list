@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - If email contains no `@` character, there is no exception anymore.
 
+### Changed
+
+- No more alignment of columns.
+
 ## [2024-07-15]
 
 ### Fixed
