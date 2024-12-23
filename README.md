@@ -55,7 +55,7 @@ Usage: jbang gcl@koppor/github-contributors-list [-lhV] [--startrevision=<startC
 Example:
 
 ```terminal
-Usage: jbang gcl@koppor/github-contributors-list --repository JabRef/jabref c:\git-repositories\jabref --startrevision=v5.13 --endrevision=v5.15
+Usage: jbang gcl@koppor/github-contributors-list --repository JabRef/jabref c:\git-repositories\jabref --startrevision=v5.14 --endrevision=v5.15
 ```
 
 At the end, non-found committers are listed.
