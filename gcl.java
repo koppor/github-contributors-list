@@ -678,12 +678,17 @@ public class gcl implements Callable<Integer> {
 
         if (user == null) {
             Logger.trace("Trying to find username derived from email.");
-            lookup = lookup.substring(0, lookup.indexOf('@'));
-            Logger.trace("Looking up {}", lookup);
-            try {
-                user = gitHub.getUser(lookup);
-            } catch (IOException e) {
-                Logger.trace("User not found for {}", lookup);
+            int atPosition = lookup.indexOf('@');
+            if (atPosition < 0) {
+                Logger.debug("No @ found in email {}", email);
+            } else {
+                lookup = lookup.substring(0, atPosition);
+                Logger.trace("Looking up {}", lookup);
+                try {
+                    user = gitHub.getUser(lookup);
+                } catch (IOException e) {
+                    Logger.trace("User not found for {}", lookup);
+                }
             }
         }
 

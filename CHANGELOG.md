@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [unreleased]
+
+### Fixed
+
+- If email contains no `@` character, there is no exception anymore.
+
 ## [2024-07-15]
 
 ### Fixed
@@ -53,6 +59,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Initial release.
 
+[unreleased]: https://github.com/koppor/github-contributors-list/compare/2024-07-15...main
 [2024-07-15]: https://github.com/koppor/github-contributors-list/compare/2024-04-26...2024-07-15
 [2024-04-26]: https://github.com/koppor/github-contributors-list/compare/2024-04-25...2024-04-26
 [2024-04-25]: https://github.com/koppor/github-contributors-list/compare/2024-04-09...2024-04-25
