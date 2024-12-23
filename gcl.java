@@ -215,6 +215,7 @@ public class gcl implements Callable<Integer> {
             CommitRangeInformation commitRangeInformation = getCommitRangeInformation(repository, git);
             MVMap<String, Contributor> loginToContributor = store.openMap("loginToContributor");
             MVMap<String, Contributor> emailToContributor = store.openMap("emailToContributor");
+
             // We need a completely new RevWalk object to have RevSort.REVERSE working
             // MWE shown at https://stackoverflow.com/a/78390567/873282.
             try (RevWalk revWalk = new RevWalk(repository);
@@ -485,7 +486,7 @@ public class gcl implements Callable<Integer> {
 
                     // first line
                     List<String> elements = subList.stream()
-                                                   .map(contributor -> getFormattedFirstLine(contributor))
+                                                   .map(contributor -> getFormattedFirstLineEntry(contributor))
                                                    .toList();
                     Integer maxLength = elements.stream().map(String::length).max(Integer::compareTo).get();
 
@@ -499,7 +500,7 @@ public class gcl implements Callable<Integer> {
 
                     // second line
                     System.out.println(subList.stream()
-                                              .map(contributor -> String.format("%-" + maxLength + "s", getFormattedSecondLine(contributor)))
+                                              .map(contributor -> String.format("%-" + maxLength + "s", getFormattedSecondLineEntry(contributor)))
                                               .collect(Collectors.joining(" | ", "| ", " |")) + suffix);
                 });
     }
@@ -522,7 +523,7 @@ public class gcl implements Callable<Integer> {
         return urlToContributor.values().stream().toList();
     }
 
-    private static String getFormattedFirstLine(Contributor contributor) {
+    private static String getFormattedFirstLineEntry(Contributor contributor) {
         if (contributor.url().isEmpty()) {
             return contributor.name();
         }
@@ -530,7 +531,7 @@ public class gcl implements Callable<Integer> {
                 [<img alt="%s" src="%s&w=%4$s" width="%4$s">](%3$s)""".formatted(contributor.name(), contributor.avatarUrl(), contributor.url(), avatarImgWidth);
     }
 
-    private static String getFormattedSecondLine(Contributor contributor) {
+    private static String getFormattedSecondLineEntry(Contributor contributor) {
         if (contributor.url().isEmpty()) {
             return "";
         }
