@@ -4,7 +4,7 @@
 
 //DEPS com.h2database:h2-mvstore:2.3.232
 //DEPS org.eclipse.jgit:org.eclipse.jgit:7.3.0.202506031305-r
-//DEPS org.kohsuke:github-api:1.327
+//DEPS org.kohsuke:github-api:1.329
 //DEPS info.picocli:picocli:4.7.7
 //DEPS one.util:streamex:0.8.3
 //DEPS me.tongfei:progressbar:0.10.1
