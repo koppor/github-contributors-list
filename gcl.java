@@ -679,44 +679,48 @@ public class gcl implements Callable<Integer> {
             fallbackSources.put(coAuthor.name, new PRAppearance(prNumber, commitName));
             return Optional.of(new Contributor(coAuthor.name, "", "", commitName));
         }
-        PagedSearchIterable<GHUser> list = gitHub.searchUsers().q(email).list();
-        if (list.getTotalCount() == 1) {
-            GHUser user = list.iterator().next();
-            String login = user.getLogin();
-            if (ignoredUsers.contains(login)) {
-                Logger.trace("Ignored because of login {}: {}", login, coAuthor);
-                return Optional.empty();
-            }
-            Contributor newContributor = new Contributor(login, user.getHtmlUrl().toString(), user.getAvatarUrl(), commitName);
-            emailToContributor.put(email, newContributor);
-            return Optional.of(newContributor);
-        }
-        if (list.getTotalCount() > 1) {
-            Logger.error("Multiple users found for the email of {}. Ignoring", coAuthor);
-            return Optional.empty();
-        }
-
-        String lookup = email;
 
         GHUser user = null;
+        String lookup = null;
 
-        if (email.contains("+")) {
-            Logger.trace("Found + in email. Removing the part before it.");
-            lookup = email.substring(email.indexOf('+') + 1);
-        }
+        if (email != null) {
+            PagedSearchIterable<GHUser> list = gitHub.searchUsers().q(email).list();
+            if (list.getTotalCount() == 1) {
+                user = list.iterator().next();
+                String login = user.getLogin();
+                if (ignoredUsers.contains(login)) {
+                    Logger.trace("Ignored because of login {}: {}", login, coAuthor);
+                    return Optional.empty();
+                }
+                Contributor newContributor = new Contributor(login, user.getHtmlUrl().toString(), user.getAvatarUrl(), commitName);
+                emailToContributor.put(email, newContributor);
+                return Optional.of(newContributor);
+            }
+            if (list.getTotalCount() > 1) {
+                Logger.error("Multiple users found for the email of {}. Ignoring", coAuthor);
+                return Optional.empty();
+            }
 
-        if (user == null) {
-            Logger.trace("Trying to find username derived from email.");
-            int atPosition = lookup.indexOf('@');
-            if (atPosition < 0) {
-                Logger.debug("No @ found in email {}", email);
-            } else {
-                lookup = lookup.substring(0, atPosition);
-                Logger.trace("Looking up {}", lookup);
-                try {
-                    user = gitHub.getUser(lookup);
-                } catch (IOException e) {
-                    Logger.trace("User not found for {}", lookup);
+            lookup = email;
+
+            if (email.contains("+")) {
+                Logger.trace("Found + in email. Removing the part before it.");
+                lookup = email.substring(email.indexOf('+') + 1);
+            }
+
+            if (user == null) {
+                Logger.trace("Trying to find username derived from email.");
+                int atPosition = lookup.indexOf('@');
+                if (atPosition < 0) {
+                    Logger.debug("No @ found in email {}", email);
+                } else {
+                    lookup = lookup.substring(0, atPosition);
+                    Logger.trace("Looking up {}", lookup);
+                    try {
+                        user = gitHub.getUser(lookup);
+                    } catch (IOException e) {
+                        Logger.trace("User not found for {}", lookup);
+                    }
                 }
             }
         }
