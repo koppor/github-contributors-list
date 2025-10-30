@@ -18,7 +18,7 @@ See <https://blog.jabref.org/2024/04/03/JabRef5-13/#special-thanks> for real-wor
    E.g.,
    - Linux/macOS: `curl -Ls https://sh.jbang.dev | bash -s - app setup` or
    - Windows (Powershell): `iex "& { $(iwr -useb https://ps.jbang.dev) } app setup"`
-2. Add `oauth=...` to `~/.github` with `...` being your [GitHub personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic). See [GitHub API for Java](https://github-api.kohsuke.org/) for details.
+2. Add `oauth=...` to `~/.github` with `...` being your [GitHub personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic). See [GitHub API for Java](https://hub4j.github.io/github-api/) for details.
 3. `cd` to the repository you want to analyze.
 4. `jbang gcl@koppor/github-contributors-list`
 
