@@ -683,7 +683,7 @@ public class gcl implements Callable<Integer> {
         GHUser user = null;
         String lookup = null;
 
-        if (email != null) {
+        if (!email.equals("")) {
             PagedSearchIterable<GHUser> list = gitHub.searchUsers().q(email).list();
             if (list.getTotalCount() == 1) {
                 user = list.iterator().next();
