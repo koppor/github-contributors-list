@@ -773,6 +773,11 @@ public class gcl implements Callable<Integer> {
             name = usersLogin;
         }
 
+        if (ignoredUsers.contains(name)) {
+            Logger.trace("Ignored because of name {}: {}", name, coAuthor);
+            return Optional.empty();
+        }
+
         Contributor newContributor = new Contributor(name, user.getHtmlUrl().toString(), user.getAvatarUrl(), commitName);
 
         Logger.trace("Found user {} for {}", newContributor, coAuthor);
