@@ -1,6 +1,6 @@
 ///usr/bin/env jbang "$0" "$@" ; exit $?
 
-//JAVA 21+
+//JAVA 25+
 
 //DEPS com.h2database:h2-mvstore:2.4.240
 //DEPS org.eclipse.jgit:org.eclipse.jgit:7.4.0.202509020913-r
@@ -29,6 +29,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -68,7 +69,7 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 @Command(name = "gcl",
-        version = "gcl 2024-04-26",
+        version = "gcl 2025-10-30",
         mixinStandardHelpOptions = true,
         sortSynopsis = false)
 public class gcl implements Callable<Integer> {
@@ -139,9 +140,38 @@ public class gcl implements Callable<Integer> {
     }
 
     private record CoAuthor(String name, String email) {
+        /// Expected formats:
+        /// "Co-authored-by: Name <email>"
+        /// "Co-authored-by: Name <email"     // missing '>'
+        /// "Co-authored-by: Name"            // no email
+        /// Any case/spacing variations are tolerated.
         public CoAuthor(String line) {
-            this(line.substring("Co-authored-by: ".length(), line.indexOf('<')).trim(),
-                    line.substring(line.indexOf('<') + 1, line.indexOf('>')).trim());
+            Logger.trace("Parsing \"{}\"...", line);
+
+            final String prefix = "co-authored-by:";
+            final String raw    = line == null ? "" : line.trim();
+            final String lower  = raw.toLowerCase(Locale.ROOT);
+
+            int prefPos = lower.indexOf(prefix);
+            int start   = (prefPos >= 0) ? prefPos + prefix.length() : 0;
+            String rest = raw.substring(Math.min(start, raw.length())).trim();
+
+            int lt = rest.indexOf('<');
+            if (lt < 0) {
+                Logger.warn("No < found in Co-authored-by line {}", line);
+            }
+            int gt = (lt >= 0) ? rest.indexOf('>', lt + 1) : -1;
+            if (gt < 0) {
+                Logger.warn("No > found in Co-authored-by line {}", line);
+            }
+
+            String name  = (lt >= 0 ? rest.substring(0, lt) : rest).trim();
+            String email = (lt >= 0
+                ? rest.substring(lt + 1, (gt >= 0 ? gt : rest.length()))
+                : "").trim();
+
+            this(name, email);
+
             Logger.trace("Parsed \"{}\" into {}", line, this);
         }
     }
