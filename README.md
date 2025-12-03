@@ -88,5 +88,6 @@ In case of issues, try to delete `gcl.mv` to start with a fresh cache.
 
 ## Alternatives
 
-- Manually curate all contributors using [All Contributors](https://allcontributors.org/)
-- Use [github-contributors-list](https://github.com/mgechev/github-contributors-list) and accept that `Co-authored-by:` is ignored.
+- Manually curate all contributors using [All Contributors](https://allcontributors.org/).
+- Use [github/contributors](https://github.com/github/contributors) and accept that `Co-authored-by:` is ignored. You can vote at [the discussion](https://github.com/github/contributors/discussions/371) to increaese priority.
+- Use [mgechev/github-contributors-list](https://github.com/mgechev/github-contributors-list) and accept that `Co-authored-by:` is ignored.
