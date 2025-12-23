@@ -29,7 +29,7 @@ jobs:
         with:
           show-progress: 'false'
       - name: markdownlint
-        uses: DavidAnson/markdownlint-cli2-action@v20
+        uses: DavidAnson/markdownlint-cli2-action@v22
         with:
           globs: |
             *.md
