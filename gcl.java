@@ -537,6 +537,16 @@ public class gcl implements Callable<Integer> {
     private List<Contributor> cleanUpContributors(SortedSet<Contributor> contributors) {
         LinkedHashMap<String, Contributor> urlToContributor = new LinkedHashMap<>();
         contributors.forEach(contributor -> {
+            if (!contributor.url().isEmpty()) {
+                String[] split = contributor.url().split("/");
+                if (split.length > 1) {
+                    String userId = split[split.length - 1];
+                    if (ignoredUsers.contains(userId)) {
+                        Logger.trace("Ignored because of userId {}: {}", userId, contributor);
+                        return;
+                    }
+                }
+            }
             if (urlToContributor.containsKey(contributor.url())) {
                 Logger.trace("Duplicate URL found: {}", contributor.url());
                 Contributor existingContributor = urlToContributor.get(contributor.url());
