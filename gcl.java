@@ -7,7 +7,7 @@
 //DEPS org.kohsuke:github-api:2.0-rc.5
 //DEPS info.picocli:picocli:4.7.7
 //DEPS one.util:streamex:0.8.4
-//DEPS me.tongfei:progressbar:0.10.1
+//DEPS me.tongfei:progressbar:0.10.2
 //DEPS org.jline:jline-terminal:3.30.6
 //DEPS org.eclipse.collections:eclipse-collections:13.0.0
 
