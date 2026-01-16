@@ -1,4 +1,10 @@
-on: [pull_request]
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
 
 jobs:
   check:
