@@ -6,7 +6,7 @@
 //DEPS org.eclipse.jgit:org.eclipse.jgit:7.7.0.202606012155-r
 //DEPS org.kohsuke:github-api:2.0-rc.6
 //DEPS info.picocli:picocli:4.7.7
-//DEPS one.util:streamex:0.8.4
+//DEPS one.util:streamex:0.9.0
 //DEPS me.tongfei:progressbar:0.10.2
 //DEPS org.jline:jline-terminal:4.3.1
 //DEPS org.eclipse.collections:eclipse-collections:13.0.0
