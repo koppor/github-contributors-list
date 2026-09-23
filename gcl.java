@@ -12,7 +12,7 @@
 //DEPS org.eclipse.collections:eclipse-collections:13.0.0
 
 //DEPS org.tinylog:tinylog-api:2.8.0
-//DEPS org.tinylog:tinylog-impl:2.7.0
+//DEPS org.tinylog:tinylog-impl:2.8.0
 //DEPS org.tinylog:slf4j-tinylog:2.8.0 // because of jgit
 //FILES tinylog.properties
 
