@@ -22,7 +22,7 @@ jobs:
           restore-keys: |
             $-jbang-
       - name: jbang
-        uses: jbangdev/jbang-action@v0.139.3
+        uses: jbangdev/jbang-action@v0.142.0
         with:
           script: gcl.java
         env:
