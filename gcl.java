@@ -3,7 +3,7 @@
 //JAVA 25+
 
 //DEPS com.h2database:h2-mvstore:2.5.250
-//DEPS org.eclipse.jgit:org.eclipse.jgit:7.7.0.202606012155-r
+//DEPS org.eclipse.jgit:org.eclipse.jgit:7.8.0.202609011348-r
 //DEPS org.kohsuke:github-api:2.0-rc.7
 //DEPS info.picocli:picocli:4.7.7
 //DEPS one.util:streamex:0.9.0
@@ -12,7 +12,7 @@
 //DEPS org.eclipse.collections:eclipse-collections:13.0.0
 
 //DEPS org.tinylog:tinylog-api:2.8.0
-//DEPS org.tinylog:tinylog-impl:2.7.0
+//DEPS org.tinylog:tinylog-impl:2.8.0
 //DEPS org.tinylog:slf4j-tinylog:2.8.0 // because of jgit
 //FILES tinylog.properties
 
