@@ -2,7 +2,7 @@
 
 //JAVA 25+
 
-//DEPS com.h2database:h2-mvstore:2.5.250
+//DEPS com.h2database:h2-mvstore:2.5.252
 //DEPS org.eclipse.jgit:org.eclipse.jgit:7.8.0.202609011348-r
 //DEPS org.kohsuke:github-api:2.0-rc.7
 //DEPS info.picocli:picocli:4.7.7
